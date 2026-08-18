@@ -517,17 +517,25 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
 
           <div style={{
             padding: 'var(--space-4)',
-            background: resultados.ahorroEstimado > 0 ? '#f0fdf4' : '#fff1f2',
-            borderTop: resultados.ahorroEstimado > 0 ? '1px solid #bbf7d0' : '1px solid #fecdd3'
+            background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            borderBottomLeftRadius: 'var(--radius-lg)',
+            borderBottomRightRadius: 'var(--radius-lg)'
           }}>
-            <span className="eyebrow" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>Análisis de Mercado Avanzado</span>
+            <span className="eyebrow" style={{marginBottom: 'var(--space-3)'}}>Análisis de Mercado Avanzado</span>
             <div className="line-item">
-              <span className="label" style={{color: resultados.ahorroEstimado > 0 ? '#15803d' : '#be123c'}}>Valor España (Tasación inteligente)</span>
-              <span className="value" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>{resultados.valorEstimadoEspana.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</span>
+              <span className="label">Valor España (Tasación inteligente)</span>
+              <span className="value">{resultados.valorEstimadoEspana.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</span>
             </div>
-            <div className="line-item" style={{marginTop: 'var(--space-2)'}}>
-              <span className="label" style={{fontWeight:600, color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>{resultados.ahorroEstimado > 0 ? 'Ahorro importando' : 'Pérdida importando'}</span>
-              <span className="value" style={{fontSize: '1.25rem', fontWeight:700, color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>
+            <div className="line-item" style={{marginTop: 'var(--space-2)', paddingTop: 'var(--space-2)', borderTop: '1px dashed var(--border-color)'}}>
+              <span className="label" style={{fontWeight: 500, color: 'var(--text-primary)'}}>
+                {resultados.ahorroEstimado > 0 ? 'Ahorro importando' : 'Pérdida importando'}
+              </span>
+              <span className="value" style={{
+                fontSize: '1.125rem', 
+                fontWeight: 600, 
+                color: resultados.ahorroEstimado > 0 ? '#10b981' : '#ef4444'
+              }}>
                 {resultados.ahorroEstimado > 0 ? '+' : ''}{resultados.ahorroEstimado.toLocaleString('es-ES', {maximumFractionDigits: 0})} €
               </span>
             </div>
