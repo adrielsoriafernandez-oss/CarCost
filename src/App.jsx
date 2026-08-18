@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import './index.css';
 
-// Porcentajes de depreciación por años de uso (Tabla BOE)
 const DEPRECIACION_BOE = {
   0: 1.00, 1: 0.84, 2: 0.67, 3: 0.56, 4: 0.47,
   5: 0.39, 6: 0.34, 7: 0.28, 8: 0.24, 9: 0.19, 10: 0.17
@@ -20,29 +19,31 @@ function App() {
   const [modelos, setModelos] = useState([]);
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [modeloSeleccionado, setModeloSeleccionado] = useState('');
-  
-  // Datos técnicos del coche
   const [cocheData, setCocheData] = useState(null);
   
-  // Calculadora
   const [precioOrigen, setPrecioOrigen] = useState(30000);
   const [antiguedad, setAntiguedad] = useState(3);
   const [resultados, setResultados] = useState(null);
   
-  // Estado UI
-  const [loading, setLoading] = useState(true);
+  // Nuevos estados para Viaje
+  const [calcularViaje, setCalcularViaje] = useState(false);
+  const [origen, setOrigen] = useState('');
+  const [destino, setDestino] = useState('');
+  const [viajeLoading, setViajeLoading] = useState(false);
+  const [datosViaje, setDatosViaje] = useState(null);
 
-  // 1. Cargar marcas iniciales
+  const [loading, setLoading] = useState(true);
+  const PRECIO_GASOLINA = 1.60;
+
   useEffect(() => {
     async function loadMarcas() {
-      const { data, error } = await supabase.from('marcas').select('*').order('nombre');
+      const { data } = await supabase.from('marcas').select('*').order('nombre');
       if (data) setMarcas(data);
       setLoading(false);
     }
     loadMarcas();
   }, []);
 
-  // 2. Cargar modelos al seleccionar marca
   useEffect(() => {
     if (!marcaSeleccionada) {
       setModelos([]);
@@ -61,20 +62,18 @@ function App() {
     loadModelos();
   }, [marcaSeleccionada]);
 
-  // 3. Cargar datos del modelo seleccionado (CO2, Consumo, Seguros)
   useEffect(() => {
     if (!modeloSeleccionado) {
       setCocheData(null);
+      setDatosViaje(null);
       return;
     }
     async function loadCocheData() {
-      // Obtener datos técnicos
       const { data: modData } = await supabase.from('modelos')
         .select('*')
         .eq('id', modeloSeleccionado)
         .single();
         
-      // Intentar obtener precio de seguro de prueba si existe
       const { data: segData } = await supabase.from('seguros')
         .select('precio_anual')
         .eq('modelo_id', modeloSeleccionado)
@@ -88,96 +87,141 @@ function App() {
     loadCocheData();
   }, [modeloSeleccionado]);
 
-  // 4. Lógica Matemática del BOE en Tiempo Real
+  // Función para obtener coordenadas (OpenStreetMap)
+  async function getCoordinates(city) {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`);
+    const data = await res.json();
+    if (data && data.length > 0) return { lat: data[0].lat, lon: data[0].lon };
+    return null;
+  }
+
+  // Función para calcular ruta (OSRM)
+  async function calcularRutaViaje() {
+    if (!origen || !destino || !cocheData) return;
+    setViajeLoading(true);
+    setDatosViaje(null);
+
+    try {
+      const coordsOrigen = await getCoordinates(origen);
+      const coordsDestino = await getCoordinates(destino);
+
+      if (!coordsOrigen || !coordsDestino) {
+        alert("No se pudo encontrar una de las ciudades en el mapa.");
+        setViajeLoading(false);
+        return;
+      }
+
+      // OSRM espera long,lat
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsOrigen.lon},${coordsOrigen.lat};${coordsDestino.lon},${coordsDestino.lat}?overview=false`;
+      const resRuta = await fetch(osrmUrl);
+      const dataRuta = await resRuta.json();
+
+      if (dataRuta.code === 'Ok') {
+        const distanciaMetros = dataRuta.routes[0].distance;
+        const distanciaKm = distanciaMetros / 1000;
+        
+        // Matemáticas de Gasolina
+        const consumoL = cocheData.consumo_l_100km || 0;
+        const costeGasolina = (distanciaKm / 100) * consumoL * PRECIO_GASOLINA;
+
+        setDatosViaje({
+          distancia: Math.round(distanciaKm),
+          costeGasolina: costeGasolina
+        });
+      }
+    } catch (e) {
+      alert("Error al contactar con el servicio de mapas.");
+    }
+    setViajeLoading(false);
+  }
+
   useEffect(() => {
     if (!cocheData || !precioOrigen) return;
-    
-    // Valor Hacienda
     const depreciacion = DEPRECIACION_BOE[antiguedad > 10 ? 10 : antiguedad];
     const valorHacienda = precioOrigen * depreciacion;
-    
-    // Impuesto Matriculación
     const co2 = cocheData.emisiones_co2 || 0;
     const porcentajeIm = calcularImpuestoMatriculacion(co2);
     const importeIm = valorHacienda * (porcentajeIm / 100);
-    
-    // Tasas
     const tasaDgt = 99.77;
-    const totalCoste = importeIm + tasaDgt;
+    
+    // Sumar gasolina si la hemos calculado
+    let costeGasolinaViaje = 0;
+    if (calcularViaje && datosViaje) {
+      costeGasolinaViaje = datosViaje.costeGasolina;
+    }
+
+    const totalCoste = importeIm + tasaDgt + costeGasolinaViaje;
     
     setResultados({
-      valorHacienda,
-      porcentajeIm,
-      importeIm,
-      totalCoste
+      valorHacienda, porcentajeIm, importeIm, tasaDgt, costeGasolinaViaje, totalCoste
     });
-  }, [cocheData, precioOrigen, antiguedad]);
+  }, [cocheData, precioOrigen, antiguedad, datosViaje, calcularViaje]);
 
   return (
     <>
       <h1>CarCost Analytics</h1>
-      <p className="subtitle">Portal avanzado de cálculo fiscal y seguros (Basado en BOE)</p>
+      <p className="subtitle">Portal avanzado de cálculo fiscal, seguros y viaje</p>
 
       <div className="dashboard">
-        {/* PANEL IZQUIERDO: BUSCADOR */}
         <div className="glass-panel">
-          <h2>🔍 Buscador</h2>
+          <h2>🔍 Búsqueda y Datos</h2>
           
           <div className="form-group">
-            <label>1. Selecciona Fabricante</label>
-            <select 
-              value={marcaSeleccionada} 
-              onChange={e => setMarcaSeleccionada(e.target.value)}
-              disabled={loading && marcas.length === 0}
-            >
+            <label>Fabricante</label>
+            <select value={marcaSeleccionada} onChange={e => setMarcaSeleccionada(e.target.value)} disabled={loading && marcas.length === 0}>
               <option value="">-- Elige una marca --</option>
-              {marcas.map(m => (
-                <option key={m.id} value={m.id}>{m.nombre}</option>
-              ))}
+              {marcas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
             </select>
           </div>
 
           <div className="form-group">
-            <label>2. Selecciona Modelo</label>
-            <select 
-              value={modeloSeleccionado} 
-              onChange={e => setModeloSeleccionado(e.target.value)}
-              disabled={!marcaSeleccionada || loading}
-            >
+            <label>Modelo</label>
+            <select value={modeloSeleccionado} onChange={e => setModeloSeleccionado(e.target.value)} disabled={!marcaSeleccionada || loading}>
               <option value="">-- Elige un modelo --</option>
-              {modelos.map(m => (
-                <option key={m.id} value={m.id}>{m.nombre}</option>
-              ))}
+              {modelos.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
             </select>
           </div>
 
-          <hr style={{borderColor: 'var(--border-color)', margin: '2rem 0'}} />
+          <hr style={{borderColor: 'var(--border-color)', margin: '1.5rem 0'}} />
           
-          <h2>💶 Datos Base</h2>
           <div className="form-group">
             <label>Precio de compra origen (€)</label>
-            <input 
-              type="number" 
-              value={precioOrigen} 
-              onChange={e => setPrecioOrigen(Number(e.target.value))} 
-            />
+            <input type="number" value={precioOrigen} onChange={e => setPrecioOrigen(Number(e.target.value))} />
           </div>
           
           <div className="form-group">
             <label>Años de antigüedad</label>
-            <input 
-              type="number" 
-              min="0" max="20"
-              value={antiguedad} 
-              onChange={e => setAntiguedad(Number(e.target.value))} 
-            />
+            <input type="number" min="0" max="20" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
           </div>
+
+          <hr style={{borderColor: 'var(--border-color)', margin: '1.5rem 0'}} />
+          
+          {/* MÓDULO VIAJE OPICIONAL */}
+          <div className="form-group" style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+            <input type="checkbox" id="checkViaje" style={{width:'auto'}} checked={calcularViaje} onChange={(e) => setCalcularViaje(e.target.checked)} />
+            <label htmlFor="checkViaje" style={{margin:0, color:'white', textTransform:'none'}}>Quiero traerlo conduciendo</label>
+          </div>
+
+          {calcularViaje && (
+            <div style={{background: 'rgba(0,0,0,0.2)', padding:'1rem', borderRadius:'8px', marginTop:'1rem'}}>
+              <div className="form-group">
+                <label>Ciudad de Origen (Ej: Múnich)</label>
+                <input type="text" placeholder="Ej: Múnich, Alemania" value={origen} onChange={e => setOrigen(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Ciudad de Destino (España)</label>
+                <input type="text" placeholder="Ej: Madrid, España" value={destino} onChange={e => setDestino(e.target.value)} />
+              </div>
+              <button className="btn-primary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>
+                {viajeLoading ? 'Satélites calculando ruta...' : 'Calcular Ruta y Gasolina'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* PANEL DERECHO: RESULTADOS */}
         {cocheData ? (
           <div className="glass-panel" style={{animationDelay: '0.1s'}}>
-            <h2>📊 Ficha Técnica y Fiscal: {cocheData.nombre}</h2>
+            <h2>📊 Ficha: {cocheData.nombre}</h2>
             
             <div className="results-grid">
               <div className="metric-card">
@@ -194,18 +238,30 @@ function App() {
               </div>
             </div>
 
+            {datosViaje && calcularViaje && (
+              <div style={{marginBottom:'2rem', padding:'1rem', border:'1px solid var(--accent)', borderRadius:'8px', background:'rgba(59, 130, 246, 0.1)'}}>
+                <h3 style={{fontSize:'1rem', marginBottom:'0.5rem'}}>🗺️ Detalles del Viaje a España</h3>
+                <p>Distancia detectada: <strong>{datosViaje.distancia} Kilómetros</strong></p>
+                <p>Precio gasolina fijado: <strong>1.60 €/Litro</strong></p>
+                <p style={{marginTop:'0.5rem'}}>Coste estimado de combustible: <strong style={{color:'var(--accent)'}}>{datosViaje.costeGasolina.toLocaleString('es-ES', {maximumFractionDigits:2})} €</strong></p>
+              </div>
+            )}
+
             {resultados && (
               <>
-                <h2>💸 Desglose de Gastos de Importación</h2>
-                <div style={{color: 'var(--text-muted)', marginBottom: '1rem'}}>
-                  <p>Valor fiscal (Hacienda): <strong>{resultados.valorHacienda.toLocaleString('es-ES')} €</strong></p>
-                  <p>Impuesto Matriculación ({resultados.porcentajeIm}%): <strong>{resultados.importeIm.toLocaleString('es-ES')} €</strong></p>
-                  <p>Tasas DGT: <strong>99,77 €</strong></p>
-                  <p>Seguro Anual Mínimo (Bot): <strong>{typeof cocheData.seguro_estimado === 'number' ? cocheData.seguro_estimado + ' €' : cocheData.seguro_estimado}</strong></p>
+                <h2>💸 Gastos de Importación</h2>
+                <div style={{color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: '1.8'}}>
+                  <p>Valor tasación (Hacienda): <strong>{resultados.valorHacienda.toLocaleString('es-ES')} €</strong></p>
+                  <p>Impuesto Matriculación ({resultados.porcentajeIm}%): <strong style={{color:'white'}}>{resultados.importeIm.toLocaleString('es-ES')} €</strong></p>
+                  <p>Tasas fijas DGT: <strong style={{color:'white'}}>99,77 €</strong></p>
+                  {calcularViaje && datosViaje && (
+                    <p>Gasolina del Viaje: <strong style={{color:'white'}}>{resultados.costeViajeGasolina?.toLocaleString('es-ES', {maximumFractionDigits:2}) || datosViaje.costeGasolina.toLocaleString('es-ES', {maximumFractionDigits:2})} €</strong></p>
+                  )}
+                  <p>Seguro Anual Mínimo (Bot): <strong style={{color:'white'}}>{typeof cocheData.seguro_estimado === 'number' ? cocheData.seguro_estimado + ' €' : cocheData.seguro_estimado}</strong></p>
                 </div>
 
                 <div className="total-box">
-                  <div className="total-label">Coste Legal de Importación</div>
+                  <div className="total-label">Coste Legal + Viaje Total</div>
                   <div className="total-value">{resultados.totalCoste.toLocaleString('es-ES', {maximumFractionDigits: 2})} €</div>
                 </div>
               </>
@@ -213,7 +269,7 @@ function App() {
           </div>
         ) : (
           <div className="glass-panel" style={{display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5}}>
-            <p>Selecciona un vehículo para ver su calculadora BOE...</p>
+            <p>Selecciona un vehículo para ver su ficha y calculadora...</p>
           </div>
         )}
       </div>
