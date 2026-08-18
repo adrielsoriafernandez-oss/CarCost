@@ -17,15 +17,20 @@ function calcularImpuestoMatriculacion(co2) {
 function App() {
   const [marcas, setMarcas] = useState([]);
   const [modelos, setModelos] = useState([]);
-  const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
-  const [modeloSeleccionado, setModeloSeleccionado] = useState('');
+  
+  const [marcaBusqueda, setMarcaBusqueda] = useState('');
+  const [marcaSeleccionada, setMarcaSeleccionada] = useState(null);
+  
+  const [modeloBusqueda, setModeloBusqueda] = useState('');
+  const [modeloSeleccionado, setModeloSeleccionado] = useState(null);
+  
   const [cocheData, setCocheData] = useState(null);
+  const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
   
   const [precioOrigen, setPrecioOrigen] = useState(30000);
   const [antiguedad, setAntiguedad] = useState(3);
   const [resultados, setResultados] = useState(null);
   
-  // Nuevos estados para Viaje
   const [calcularViaje, setCalcularViaje] = useState(false);
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
@@ -35,6 +40,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const PRECIO_GASOLINA = 1.60;
 
+  // 1. Cargar marcas
   useEffect(() => {
     async function loadMarcas() {
       const { data } = await supabase.from('marcas').select('*').order('nombre');
@@ -44,10 +50,12 @@ function App() {
     loadMarcas();
   }, []);
 
+  // 2. Cargar modelos cuando se selecciona una marca válida
   useEffect(() => {
     if (!marcaSeleccionada) {
       setModelos([]);
-      setModeloSeleccionado('');
+      setModeloBusqueda('');
+      setModeloSeleccionado(null);
       return;
     }
     async function loadModelos() {
@@ -62,32 +70,34 @@ function App() {
     loadModelos();
   }, [marcaSeleccionada]);
 
-  useEffect(() => {
+  // Manejador del botón "Buscar"
+  async function handleBuscar() {
     if (!modeloSeleccionado) {
-      setCocheData(null);
-      setDatosViaje(null);
+      alert("Por favor, selecciona una marca y un modelo de la lista antes de buscar.");
       return;
     }
-    async function loadCocheData() {
-      const { data: modData } = await supabase.from('modelos')
-        .select('*')
-        .eq('id', modeloSeleccionado)
-        .single();
-        
-      const { data: segData } = await supabase.from('seguros')
-        .select('precio_anual')
-        .eq('modelo_id', modeloSeleccionado)
-        .limit(1);
-        
-      setCocheData({
-        ...modData,
-        seguro_estimado: segData?.length > 0 ? segData[0].precio_anual : "No disponible"
-      });
-    }
-    loadCocheData();
-  }, [modeloSeleccionado]);
+    
+    setCargandoBusqueda(true);
+    setDatosViaje(null); // Resetear viaje previo
+    
+    const { data: modData } = await supabase.from('modelos')
+      .select('*')
+      .eq('id', modeloSeleccionado)
+      .single();
+      
+    const { data: segData } = await supabase.from('seguros')
+      .select('precio_anual')
+      .eq('modelo_id', modeloSeleccionado)
+      .limit(1);
+      
+    setCocheData({
+      ...modData,
+      seguro_estimado: segData?.length > 0 ? segData[0].precio_anual : "No disponible"
+    });
+    
+    setCargandoBusqueda(false);
+  }
 
-  // Función para obtener coordenadas (OpenStreetMap)
   async function getCoordinates(city) {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`);
     const data = await res.json();
@@ -95,7 +105,6 @@ function App() {
     return null;
   }
 
-  // Función para calcular ruta (OSRM)
   async function calcularRutaViaje() {
     if (!origen || !destino || !cocheData) return;
     setViajeLoading(true);
@@ -111,7 +120,6 @@ function App() {
         return;
       }
 
-      // OSRM espera long,lat
       const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsOrigen.lon},${coordsOrigen.lat};${coordsDestino.lon},${coordsDestino.lat}?overview=false`;
       const resRuta = await fetch(osrmUrl);
       const dataRuta = await resRuta.json();
@@ -119,8 +127,6 @@ function App() {
       if (dataRuta.code === 'Ok') {
         const distanciaMetros = dataRuta.routes[0].distance;
         const distanciaKm = distanciaMetros / 1000;
-        
-        // Matemáticas de Gasolina
         const consumoL = cocheData.consumo_l_100km || 0;
         const costeGasolina = (distanciaKm / 100) * consumoL * PRECIO_GASOLINA;
 
@@ -135,6 +141,7 @@ function App() {
     setViajeLoading(false);
   }
 
+  // Cálculos BOE
   useEffect(() => {
     if (!cocheData || !precioOrigen) return;
     const depreciacion = DEPRECIACION_BOE[antiguedad > 10 ? 10 : antiguedad];
@@ -144,7 +151,6 @@ function App() {
     const importeIm = valorHacienda * (porcentajeIm / 100);
     const tasaDgt = 99.77;
     
-    // Sumar gasolina si la hemos calculado
     let costeGasolinaViaje = 0;
     if (calcularViaje && datosViaje) {
       costeGasolinaViaje = datosViaje.costeGasolina;
@@ -167,19 +173,43 @@ function App() {
           <h2>🔍 Búsqueda y Datos</h2>
           
           <div className="form-group">
-            <label>Fabricante</label>
-            <select value={marcaSeleccionada} onChange={e => setMarcaSeleccionada(e.target.value)} disabled={loading && marcas.length === 0}>
-              <option value="">-- Elige una marca --</option>
-              {marcas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-            </select>
+            <label>Fabricante (Escribe para buscar)</label>
+            <input 
+              type="text" 
+              list="marcas-list"
+              placeholder="Ej: BMW"
+              value={marcaBusqueda}
+              disabled={loading && marcas.length === 0}
+              onChange={e => {
+                const val = e.target.value;
+                setMarcaBusqueda(val);
+                const m = marcas.find(x => x.nombre === val);
+                setMarcaSeleccionada(m ? m.id : null);
+              }}
+            />
+            <datalist id="marcas-list">
+              {marcas.map(m => <option key={m.id} value={m.nombre} />)}
+            </datalist>
           </div>
 
           <div className="form-group">
-            <label>Modelo</label>
-            <select value={modeloSeleccionado} onChange={e => setModeloSeleccionado(e.target.value)} disabled={!marcaSeleccionada || loading}>
-              <option value="">-- Elige un modelo --</option>
-              {modelos.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-            </select>
+            <label>Modelo (Escribe para buscar)</label>
+            <input 
+              type="text" 
+              list="modelos-list"
+              placeholder="Ej: Serie 3"
+              value={modeloBusqueda}
+              disabled={!marcaSeleccionada || loading}
+              onChange={e => {
+                const val = e.target.value;
+                setModeloBusqueda(val);
+                const m = modelos.find(x => x.nombre === val);
+                setModeloSeleccionado(m ? m.id : null);
+              }}
+            />
+            <datalist id="modelos-list">
+              {modelos.map(m => <option key={m.id} value={m.nombre} />)}
+            </datalist>
           </div>
 
           <hr style={{borderColor: 'var(--border-color)', margin: '1.5rem 0'}} />
@@ -194,29 +224,14 @@ function App() {
             <input type="number" min="0" max="20" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
           </div>
 
-          <hr style={{borderColor: 'var(--border-color)', margin: '1.5rem 0'}} />
-          
-          {/* MÓDULO VIAJE OPICIONAL */}
-          <div className="form-group" style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <input type="checkbox" id="checkViaje" style={{width:'auto'}} checked={calcularViaje} onChange={(e) => setCalcularViaje(e.target.checked)} />
-            <label htmlFor="checkViaje" style={{margin:0, color:'white', textTransform:'none'}}>Quiero traerlo conduciendo</label>
-          </div>
-
-          {calcularViaje && (
-            <div style={{background: 'rgba(0,0,0,0.2)', padding:'1rem', borderRadius:'8px', marginTop:'1rem'}}>
-              <div className="form-group">
-                <label>Ciudad de Origen (Ej: Múnich)</label>
-                <input type="text" placeholder="Ej: Múnich, Alemania" value={origen} onChange={e => setOrigen(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label>Ciudad de Destino (España)</label>
-                <input type="text" placeholder="Ej: Madrid, España" value={destino} onChange={e => setDestino(e.target.value)} />
-              </div>
-              <button className="btn-primary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>
-                {viajeLoading ? 'Satélites calculando ruta...' : 'Calcular Ruta y Gasolina'}
-              </button>
-            </div>
-          )}
+          <button 
+            className="btn-primary" 
+            style={{marginTop: '1rem', padding: '1.2rem', fontSize: '1.1rem'}}
+            onClick={handleBuscar} 
+            disabled={!modeloSeleccionado || cargandoBusqueda}
+          >
+            {cargandoBusqueda ? 'Buscando datos...' : 'BUSCAR COCHE Y CALCULAR'}
+          </button>
         </div>
 
         {cocheData ? (
@@ -238,11 +253,35 @@ function App() {
               </div>
             </div>
 
+            <hr style={{borderColor: 'var(--border-color)', margin: '1.5rem 0'}} />
+            
+            {/* MÓDULO VIAJE OPICIONAL (Solo aparece al buscar el coche) */}
+            <div className="form-group" style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+              <input type="checkbox" id="checkViaje" style={{width:'auto'}} checked={calcularViaje} onChange={(e) => setCalcularViaje(e.target.checked)} />
+              <label htmlFor="checkViaje" style={{margin:0, color:'white', textTransform:'none', cursor:'pointer'}}>Quiero traerlo conduciendo a España</label>
+            </div>
+
+            {calcularViaje && (
+              <div style={{background: 'rgba(0,0,0,0.2)', padding:'1rem', borderRadius:'8px', marginTop:'1rem', marginBottom:'1.5rem'}}>
+                <div className="form-group">
+                  <label>Ciudad de Origen (Ej: Múnich)</label>
+                  <input type="text" placeholder="Ej: Múnich, Alemania" value={origen} onChange={e => setOrigen(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>Ciudad de Destino (España)</label>
+                  <input type="text" placeholder="Ej: Madrid, España" value={destino} onChange={e => setDestino(e.target.value)} />
+                </div>
+                <button className="btn-primary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>
+                  {viajeLoading ? 'Satélites calculando ruta...' : 'Calcular Ruta y Gasolina'}
+                </button>
+              </div>
+            )}
+
             {datosViaje && calcularViaje && (
               <div style={{marginBottom:'2rem', padding:'1rem', border:'1px solid var(--accent)', borderRadius:'8px', background:'rgba(59, 130, 246, 0.1)'}}>
                 <h3 style={{fontSize:'1rem', marginBottom:'0.5rem'}}>🗺️ Detalles del Viaje a España</h3>
                 <p>Distancia detectada: <strong>{datosViaje.distancia} Kilómetros</strong></p>
-                <p>Precio gasolina fijado: <strong>1.60 €/Litro</strong></p>
+                <p>Precio gasolina fijado: <strong>{PRECIO_GASOLINA.toFixed(2)} €/Litro</strong></p>
                 <p style={{marginTop:'0.5rem'}}>Coste estimado de combustible: <strong style={{color:'var(--accent)'}}>{datosViaje.costeGasolina.toLocaleString('es-ES', {maximumFractionDigits:2})} €</strong></p>
               </div>
             )}
@@ -269,7 +308,7 @@ function App() {
           </div>
         ) : (
           <div className="glass-panel" style={{display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5}}>
-            <p>Selecciona un vehículo para ver su ficha y calculadora...</p>
+            <p>Rellena los datos y pulsa "BUSCAR COCHE" para ver su ficha y calculadora...</p>
           </div>
         )}
       </div>
