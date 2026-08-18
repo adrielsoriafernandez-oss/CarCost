@@ -8,6 +8,16 @@ const COSTES_FIJOS = { itv: 150, placas: 30, traduccion: 80, tasaDgt: 99.77 };
 const TOTAL_TRAMITES = COSTES_FIJOS.itv + COSTES_FIJOS.placas + COSTES_FIJOS.traduccion + COSTES_FIJOS.tasaDgt;
 const PRECIO_GASOLINA = 1.60;
 
+const ITP_CCAA = {
+  'Andalucía': 0.08, 'Aragón': 0.04, 'Asturias': 0.08, 'Baleares': 0.08,
+  'Canarias': 0.055, 'Cantabria': 0.08, 'Castilla y León': 0.08, 'Castilla-La Mancha': 0.06,
+  'Cataluña': 0.05, 'Ceuta': 0.04, 'Comunidad Valenciana': 0.08, 'Extremadura': 0.06,
+  'Galicia': 0.08, 'Madrid': 0.04, 'Melilla': 0.04, 'Murcia': 0.08, 'Navarra': 0.04,
+  'País Vasco': 0.04, 'La Rioja': 0.04
+};
+
+const MARCAS_PREMIUM = ['audi', 'bmw', 'mercedes', 'mercedes-benz', 'porsche', 'lexus', 'volvo', 'land rover', 'jaguar'];
+
 // SVGs
 const DownloadIcon = () => (<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>);
 const BookmarkIcon = () => (<svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>);
@@ -29,12 +39,18 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
   
   const [cocheData, setCocheData] = useState(null);
   const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
+  
   const [precioOrigen, setPrecioOrigen] = useState('');
   const [fechaMatriculacion, setFechaMatriculacion] = useState('');
   const [kilometros, setKilometros] = useState('');
+  const [combustible, setCombustible] = useState('gasolina');
+  
+  const [tipoVendedor, setTipoVendedor] = useState('concesionario');
+  const [comunidadAutonoma, setComunidadAutonoma] = useState('Madrid');
+  
   const [resultados, setResultados] = useState(null);
   
-  const [calcularViaje, setCalcularViaje] = useState(false);
+  const [tipoTransporte, setTipoTransporte] = useState('ninguno'); // ninguno, conduciendo, grua
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
   const [viajeLoading, setViajeLoading] = useState(false);
@@ -47,6 +63,7 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
 
   const [edadConductor, setEdadConductor] = useState('');
   const [anosCarnet, setAnosCarnet] = useState('');
+  const [codigoPostal, setCodigoPostal] = useState('');
   const [seguroBaseDB, setSeguroBaseDB] = useState(null);
 
   const TIPO_INTERES_ANUAL = 0.075; 
@@ -101,6 +118,7 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
     // Calcular antigüedad real
     const diffTime = Math.abs(new Date() - new Date(fechaMatriculacion));
     const antiguedad = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25)) || 0;
+    const ageKey = antiguedad > 10 ? 10 : antiguedad;
 
     async function calcularTodo() {
       let precioFinalEur = Number(precioOrigen) || 0;
@@ -118,27 +136,59 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
         aduanasEivaSuiza = arancel + iva;
       }
 
+      // Impuesto Matriculación y Valor BOE
       const co2 = cocheData.emisiones_co2 || 0;
       let porcentajeIm = 0;
       if (co2 > 120 && co2 <= 159) porcentajeIm = 4.75;
       else if (co2 >= 160 && co2 <= 199) porcentajeIm = 9.75;
       else if (co2 >= 200) porcentajeIm = 14.75;
-      const depreciacion = DEPRECIACION_BOE[antiguedad > 10 ? 10 : antiguedad];
-      const valorHacienda = precioFinalEur * depreciacion;
+      
+      const factorMercado = DEPRECIACION_MERCADO[ageKey];
+      const precioNuevoEstimado = precioFinalEur / factorMercado;
+      
+      // Si la BD tiene el valor BOE real, lo usa. Si no, usa nuestra estimación (Idea 1)
+      const precioNuevoBOE = cocheData.precio_nuevo_boe || precioNuevoEstimado; 
+      
+      const depreciacionBOE = DEPRECIACION_BOE[ageKey];
+      const valorHacienda = precioNuevoBOE * depreciacionBOE;
       const importeIm = valorHacienda * (porcentajeIm / 100);
+
+      // Impuesto Transmisiones Patrimoniales (ITP) (Idea 2)
+      let importeITP = 0;
+      if (tipoVendedor === 'particular') {
+        const porcentajeITP = ITP_CCAA[comunidadAutonoma] || 0.04;
+        importeITP = valorHacienda * porcentajeITP;
+      }
       
-      const costeViajeGasolina = (calcularViaje && datosViaje) ? datosViaje.costeGasolina : 0;
+      // Transporte (Ideas 4 y 8)
+      let costeTransporteTotal = 0;
+      let viajeDesglose = { gasolina: 0, extra: 0, grua: 0 };
       
+      if (tipoTransporte === 'conduciendo') {
+        viajeDesglose.gasolina = datosViaje ? datosViaje.costeGasolina : 0;
+        viajeDesglose.extra = 380; // Vuelo 120 + Hotel 80 + Placas Tránsito 180
+        costeTransporteTotal = viajeDesglose.gasolina + viajeDesglose.extra;
+      } else if (tipoTransporte === 'grua') {
+        viajeDesglose.grua = datosViaje ? 200 + (datosViaje.distancia * 0.85) : 0;
+        costeTransporteTotal = viajeDesglose.grua;
+      }
+      
+      // Seguro por CP (Idea 5)
       let multiplicadorRiesgo = 1.0;
       if (edadConductor < 25) multiplicadorRiesgo += 0.8;
       else if (edadConductor < 30) multiplicadorRiesgo += 0.3;
       if (anosCarnet < 2) multiplicadorRiesgo += 0.5;
       else if (anosCarnet < 5) multiplicadorRiesgo += 0.2;
       
+      const cpPrefix = codigoPostal.substring(0, 2);
+      if (['28', '08', '46', '41', '29', '48'].includes(cpPrefix)) {
+        multiplicadorRiesgo += 0.15; // Zonas urbanas de alta siniestralidad
+      }
+      
       const baseReal = seguroBaseDB || (precioFinalEur * 0.02); 
       const seguroEstimadoAnual = baseReal * multiplicadorRiesgo;
 
-      const totalCosteExtra = importeIm + TOTAL_TRAMITES + costeViajeGasolina + aduanasEivaSuiza + seguroEstimadoAnual;
+      const totalCosteExtra = importeIm + importeITP + TOTAL_TRAMITES + costeTransporteTotal + aduanasEivaSuiza + seguroEstimadoAnual;
       const totalPresupuesto = precioFinalEur + totalCosteExtra;
       const etiqueta = getEtiquetaDGT(co2, antiguedad);
 
@@ -151,11 +201,12 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
         }
       }
 
-      // Algoritmo Valor Mercado España
-      const ageKey = antiguedad > 10 ? 10 : antiguedad;
-      const factorDepreciacion = DEPRECIACION_MERCADO[ageKey];
-      const precioNuevoEstimado = precioOrigen / factorDepreciacion;
-      let precioEspanaBase = precioNuevoEstimado * factorDepreciacion * 1.10; // Prima mercado español
+      // Algoritmo Valor Mercado España Avanzado (Idea 3)
+      let primaMercado = 1.10; // Base premium
+      if (MARCAS_PREMIUM.some(m => marcaBusqueda.toLowerCase().includes(m))) primaMercado += 0.10; // +10% premium brand
+      if (combustible === 'diesel') primaMercado -= 0.05; // -5% penalización diésel ZBE
+      
+      let precioEspanaBase = precioNuevoBOE * factorMercado * primaMercado; 
 
       const kilometrosIdeales = antiguedad * 15000;
       const diferenciaKm = kilometros - kilometrosIdeales;
@@ -171,13 +222,13 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
       const ahorroEstimado = valorEstimadoEspana - totalPresupuesto;
       
       setResultados({
-        precioFinalEur, aduanasEivaSuiza, valorHacienda, porcentajeIm, importeIm, 
-        costeViajeGasolina, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual, seguroEstimadoAnual,
+        precioFinalEur, aduanasEivaSuiza, valorHacienda, porcentajeIm, importeIm, importeITP,
+        costeTransporteTotal, viajeDesglose, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual, seguroEstimadoAnual,
         valorEstimadoEspana, ahorroEstimado
       });
     }
     calcularTodo();
-  }, [cocheData, precioOrigen, fechaMatriculacion, kilometros, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
+  }, [cocheData, precioOrigen, fechaMatriculacion, kilometros, datosViaje, tipoTransporte, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB, tipoVendedor, comunidadAutonoma, codigoPostal, combustible, marcaBusqueda]);
 
   async function handleGuardarGaraje() {
     if (!user) return alert("Debes iniciar sesión");
@@ -198,7 +249,7 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
       {/* Formulario / Inputs */}
       <div>
         <div className="form-section">
-          <span className="eyebrow">Vehículo</span>
+          <span className="eyebrow">Vehículo y Adquisición</span>
           <div className="form-grid">
             <div className="form-group">
               <label>Marca</label>
@@ -215,6 +266,15 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
               <datalist id={`modelos-list-${panelId}`}>{modelos.map(m => <option key={m.id} value={m.nombre} />)}</datalist>
             </div>
             <div className="form-group">
+              <label>Combustible</label>
+              <select value={combustible} onChange={e => setCombustible(e.target.value)}>
+                <option value="gasolina">Gasolina</option>
+                <option value="diesel">Diésel</option>
+                <option value="hibrido">Híbrido</option>
+                <option value="electrico">Eléctrico</option>
+              </select>
+            </div>
+            <div className="form-group">
               <label>Precio de origen {mercadoSuizo ? '(CHF)' : '(€)'}</label>
               <input type="number" value={precioOrigen} placeholder="Ej: 35000" onChange={e => setPrecioOrigen(e.target.value)} />
             </div>
@@ -226,11 +286,28 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
               <label>Kilómetros</label>
               <input type="number" min="0" value={kilometros} placeholder="Ej: 80000" onChange={e => setKilometros(e.target.value)} />
             </div>
+            <div className="form-group" style={{gridColumn: '1 / -1'}}>
+              <label>Tipo de vendedor en origen</label>
+              <select value={tipoVendedor} onChange={e => setTipoVendedor(e.target.value)}>
+                <option value="concesionario">Concesionario (IVA Incluido)</option>
+                <option value="particular">Vendedor Particular (Sujeto a ITP)</option>
+              </select>
+            </div>
+            {tipoVendedor === 'particular' && (
+              <div className="form-group" style={{gridColumn: '1 / -1'}}>
+                <label>Comunidad Autónoma (Para cálculo ITP)</label>
+                <select value={comunidadAutonoma} onChange={e => setComunidadAutonoma(e.target.value)}>
+                  {Object.keys(ITP_CCAA).map(ccaa => (
+                    <option key={ccaa} value={ccaa}>{ccaa} ({(ITP_CCAA[ccaa]*100).toFixed(1)}%)</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="form-section">
-          <span className="eyebrow">Perfil de conductor</span>
+          <span className="eyebrow">Perfil de conductor y Seguro</span>
           <div className="form-grid">
             <div className="form-group">
               <label>Edad</label>
@@ -240,11 +317,15 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
               <label>Años de carnet</label>
               <input type="number" min="0" value={anosCarnet} placeholder="Ej: 10" onChange={e => setAnosCarnet(e.target.value)} />
             </div>
+            <div className="form-group" style={{gridColumn: '1 / -1'}}>
+              <label>Código Postal (Para estimación de siniestralidad)</label>
+              <input type="text" value={codigoPostal} placeholder="Ej: 28001" maxLength="5" onChange={e => setCodigoPostal(e.target.value)} />
+            </div>
           </div>
         </div>
 
         <div className="form-section">
-          <span className="eyebrow">Módulos adicionales</span>
+          <span className="eyebrow">Logística y Opciones Extras</span>
           <div style={{display:'flex', flexDirection:'column', gap:'var(--space-3)'}}>
             
             <label className="checkbox-group">
@@ -256,19 +337,22 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
             </label>
 
             <div style={{display:'flex', flexDirection:'column'}}>
-              <label className="checkbox-group" style={calcularViaje ? {borderBottomLeftRadius:0, borderBottomRightRadius:0, borderBottom:'none'} : {}}>
-                <input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} />
+              <label className="checkbox-group" style={tipoTransporte !== 'ninguno' ? {borderBottomLeftRadius:0, borderBottomRightRadius:0, borderBottom:'none'} : {}}>
+                <select value={tipoTransporte} onChange={e => setTipoTransporte(e.target.value)} style={{marginRight: 'var(--space-2)', width: 'auto'}}>
+                  <option value="ninguno">Sin transporte (Gestionado por mí)</option>
+                  <option value="conduciendo">Traer conduciendo (Viaje personal)</option>
+                  <option value="grua">Transporte en camión grúa</option>
+                </select>
                 <div className="checkbox-content">
-                  <span className="checkbox-label">Traer conduciendo</span>
-                  <span className="checkbox-desc">Cálculo de gasolina por ruta geolocalizada.</span>
+                  <span className="checkbox-label">Logística internacional</span>
                 </div>
               </label>
-              {calcularViaje && (
+              {tipoTransporte !== 'ninguno' && (
                 <div className="nested-form">
                   <input type="text" placeholder="Ciudad de origen (Ej. Múnich)" value={origen} onChange={e=>setOrigen(e.target.value)} />
                   <input type="text" placeholder="Ciudad de destino (Ej. Madrid)" value={destino} onChange={e=>setDestino(e.target.value)} />
                   <button className="btn-secondary" style={{alignSelf:'flex-start'}} onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>
-                    {viajeLoading ? 'Calculando ruta...' : 'Calcular coste trayecto'}
+                    {viajeLoading ? 'Calculando ruta...' : 'Calcular coste logística'}
                   </button>
                 </div>
               )}
@@ -328,43 +412,72 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
             </div>
             
             <div className="divider"></div>
-            <span className="eyebrow" style={{marginBottom:0}}>Impuestos y Tasas</span>
+            <span className="eyebrow" style={{marginBottom:0}}>Impuestos y Tasas Gubernamentales</span>
             
             {mercadoSuizo && (
               <div className="line-item">
-                <span className="label">Aranceles + IVA (Suiza)</span>
+                <span className="label">Aranceles + IVA Extra-Comunitario (Suiza)</span>
                 <span className="value">{resultados.aduanasEivaSuiza.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
               </div>
             )}
             
             <div className="line-item">
-              <span className="label">I. Matriculación</span>
+              <span className="label">Impuesto de Matriculación</span>
               <span className="value">{resultados.importeIm.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
             </div>
             <div className="line-item sub">
-              <span className="label">Tramo impositivo: {resultados.porcentajeIm}%</span>
+              <span className="label">Tramo: {resultados.porcentajeIm}% s/ Valor BOE Hacienda ({resultados.valorHacienda.toLocaleString('es-ES',{maximumFractionDigits:0})}€)</span>
             </div>
 
+            {tipoVendedor === 'particular' && (
+              <>
+                <div className="line-item">
+                  <span className="label">Impuesto Transmisiones (ITP)</span>
+                  <span className="value">{resultados.importeITP.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+                </div>
+                <div className="line-item sub">
+                  <span className="label">Aplicado {(ITP_CCAA[comunidadAutonoma]*100).toFixed(1)}% para {comunidadAutonoma}</span>
+                </div>
+              </>
+            )}
+
             <div className="line-item">
-              <span className="label">Trámites fijos</span>
+              <span className="label">Trámites fijos importación</span>
               <span className="value">{TOTAL_TRAMITES.toLocaleString('es-ES')} €</span>
             </div>
             <div className="line-item sub">
-              <span className="label">ITV, DGT y Placas</span>
+              <span className="label">ITV (150€), DGT (100€), Placas y Traducción</span>
             </div>
 
-            {resultados.costeViajeGasolina > 0 && (
-              <div className="line-item">
-                <span className="label">Coste viaje (Gasolina)</span>
-                <span className="value">{resultados.costeViajeGasolina.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
-              </div>
+            <div className="divider"></div>
+            <span className="eyebrow" style={{marginBottom:0}}>Logística y Mantenimiento</span>
+
+            {tipoTransporte === 'conduciendo' && (
+              <>
+                <div className="line-item">
+                  <span className="label">Coste Viaje Personal (Conduciendo)</span>
+                  <span className="value">{resultados.costeTransporteTotal.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+                </div>
+                <div className="line-item sub">
+                  <span className="label">Vuelo (120€) + Hotel (80€) + Placas tránsito (180€) + Gasolina ({resultados.viajeDesglose.gasolina.toLocaleString('es-ES',{maximumFractionDigits:0})}€)</span>
+                </div>
+              </>
             )}
 
-            <div className="divider"></div>
-            <span className="eyebrow" style={{marginBottom:0}}>Mantenimiento Primer Año</span>
+            {tipoTransporte === 'grua' && (
+              <>
+                <div className="line-item">
+                  <span className="label">Coste Transporte (Grúa)</span>
+                  <span className="value">{resultados.costeTransporteTotal.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+                </div>
+                <div className="line-item sub">
+                  <span className="label">Tarifa B2B base + 0.85€/km recorrido</span>
+                </div>
+              </>
+            )}
 
             <div className="line-item">
-              <span className="label">Seguro Anual (Estimado)</span>
+              <span className="label">Seguro Anual (Estimado por riesgo de perfil y CP)</span>
               <span className="value">{resultados.seguroEstimadoAnual.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
             </div>
 
@@ -407,9 +520,9 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
             background: resultados.ahorroEstimado > 0 ? '#f0fdf4' : '#fff1f2',
             borderTop: resultados.ahorroEstimado > 0 ? '1px solid #bbf7d0' : '1px solid #fecdd3'
           }}>
-            <span className="eyebrow" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>Análisis de Mercado</span>
+            <span className="eyebrow" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>Análisis de Mercado Avanzado</span>
             <div className="line-item">
-              <span className="label" style={{color: resultados.ahorroEstimado > 0 ? '#15803d' : '#be123c'}}>Valor España (Estimado)</span>
+              <span className="label" style={{color: resultados.ahorroEstimado > 0 ? '#15803d' : '#be123c'}}>Valor España (Tasación inteligente)</span>
               <span className="value" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>{resultados.valorEstimadoEspana.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</span>
             </div>
             <div className="line-item" style={{marginTop: 'var(--space-2)'}}>
