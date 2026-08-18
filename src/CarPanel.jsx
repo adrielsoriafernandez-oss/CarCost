@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import html2pdf from 'html2pdf.js';
 
 const DEPRECIACION_BOE = { 0: 1.00, 1: 0.84, 2: 0.67, 3: 0.56, 4: 0.47, 5: 0.39, 6: 0.34, 7: 0.28, 8: 0.24, 9: 0.19, 10: 0.17 };
@@ -8,14 +7,18 @@ const COSTES_FIJOS = { itv: 150, placas: 30, traduccion: 80, tasaDgt: 99.77 };
 const TOTAL_TRAMITES = COSTES_FIJOS.itv + COSTES_FIJOS.placas + COSTES_FIJOS.traduccion + COSTES_FIJOS.tasaDgt;
 const PRECIO_GASOLINA = 1.60;
 
+// SVGs
+const DownloadIcon = () => (<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>);
+const BookmarkIcon = () => (<svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>);
+
 function getEtiquetaDGT(co2, antiguedad) {
-  if (co2 === 0) return { label: 'CERO', color: '#005a9e', bg: '#e0f2fe' };
-  if (antiguedad < 8) return { label: 'C', color: '#166534', bg: '#dcfce7' };
-  if (antiguedad >= 8 && antiguedad < 18) return { label: 'B', color: '#854d0e', bg: '#fef08a' };
-  return { label: 'SIN ETIQUETA', color: '#7f1d1d', bg: '#fecaca' };
+  if (co2 === 0) return { label: 'CERO', color: '#005a9e', bg: '#e0f2fe', border: '#bae6fd' };
+  if (antiguedad < 8) return { label: 'C', color: '#166534', bg: '#dcfce7', border: '#bbf7d0' };
+  if (antiguedad >= 8 && antiguedad < 18) return { label: 'B', color: '#854d0e', bg: '#fef08a', border: '#fde047' };
+  return { label: 'SIN ETIQUETA', color: '#7f1d1d', bg: '#fecaca', border: '#f87171' };
 }
 
-export default function CarPanel({ panelId, marcas, user }) {
+export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
   const [modelos, setModelos] = useState([]);
   const [marcaBusqueda, setMarcaBusqueda] = useState('');
   const [marcaSeleccionada, setMarcaSeleccionada] = useState(null);
@@ -36,13 +39,10 @@ export default function CarPanel({ panelId, marcas, user }) {
   const [datosViaje, setDatosViaje] = useState(null);
 
   const [mercadoSuizo, setMercadoSuizo] = useState(false);
-
-  
   const [calcularPrestamo, setCalcularPrestamo] = useState(false);
   const [entrada, setEntrada] = useState(5000);
   const [mesesPrestamo, setMesesPrestamo] = useState(60);
 
-  // v6 Seguros
   const [edadConductor, setEdadConductor] = useState(30);
   const [anosCarnet, setAnosCarnet] = useState(10);
   const [seguroBaseDB, setSeguroBaseDB] = useState(null);
@@ -60,8 +60,6 @@ export default function CarPanel({ panelId, marcas, user }) {
     loadModelos();
   }, [marcaSeleccionada]);
 
-
-
   async function handleBuscar() {
     if (!modeloSeleccionado) { alert("Selecciona un modelo."); return; }
     setCargandoBusqueda(true);
@@ -69,7 +67,6 @@ export default function CarPanel({ panelId, marcas, user }) {
     const { data: modData } = await supabase.from('modelos').select('*').eq('id', modeloSeleccionado).single();
     const { data: segData } = await supabase.from('seguros').select('precio_anual').eq('modelo_id', modeloSeleccionado).limit(1);
     
-    // Guardamos el precio base del seguro si existe en la BD (sino null)
     let seguroBase = segData?.length > 0 ? parseFloat(segData[0].precio_anual) : null;
     setSeguroBaseDB(seguroBase);
     setCocheData(modData);
@@ -125,14 +122,12 @@ export default function CarPanel({ panelId, marcas, user }) {
       
       const costeViajeGasolina = (calcularViaje && datosViaje) ? datosViaje.costeGasolina : 0;
       
-      // Estimación del Seguro v6
       let multiplicadorRiesgo = 1.0;
       if (edadConductor < 25) multiplicadorRiesgo += 0.8;
       else if (edadConductor < 30) multiplicadorRiesgo += 0.3;
       if (anosCarnet < 2) multiplicadorRiesgo += 0.5;
       else if (anosCarnet < 5) multiplicadorRiesgo += 0.2;
       
-      // Si la BD no tiene base, estimamos un 2% del precio del coche como base
       const baseReal = seguroBaseDB || (precioFinalEur * 0.02); 
       const seguroEstimadoAnual = baseReal * multiplicadorRiesgo;
 
@@ -162,129 +157,220 @@ export default function CarPanel({ panelId, marcas, user }) {
     const { error } = await supabase.from('garaje').insert([{
       user_id: user.id, coche_nombre: cocheData.nombre, presupuesto_total: resultados.totalPresupuesto, datos_json: resultados
     }]);
-    if (error) alert(error.message); else alert("Coche guardado en Mi Garaje!");
+    if (error) alert(error.message); else alert("Coche guardado en Mi Garaje");
   }
 
   const handleDownloadPDF = () => {
     const element = document.getElementById(`pdf-content-${panelId}`);
-    html2pdf().set({ margin: 10, filename: 'Presupuesto.pdf' }).from(element).save();
+    html2pdf().set({ margin: 10, filename: 'Resumen_Importacion.pdf' }).from(element).save();
   };
 
-  const chartData = resultados ? [
-    { name: 'Coche', value: resultados.precioFinalEur, color: '#4b5563' },
-    { name: 'I. Matric.', value: resultados.importeIm, color: '#ef4444' },
-    { name: 'Aduanas', value: resultados.aduanasEivaSuiza, color: '#ec4899' },
-    { name: 'Trámites', value: TOTAL_TRAMITES, color: '#f59e0b' },
-    { name: 'Viaje', value: resultados.costeViajeGasolina, color: '#3b82f6' },
-    { name: 'Seguro', value: resultados.seguroEstimadoAnual, color: '#8b5cf6' }
-  ].filter(i => i.value > 0) : [];
-
   return (
-    <div className="panel-wrapper">
-      <div className="glass-panel search-panel">
-        <h2>🔍 Configurar Vehículo {panelId}</h2>
-        
-
-
-        <div className="form-group">
-          <label>Marca</label>
-          <input type="text" list={`marcas-list-${panelId}`} value={marcaBusqueda} onChange={e => {
-            setMarcaBusqueda(e.target.value); const m = marcas.find(x => x.nombre === e.target.value); setMarcaSeleccionada(m ? m.id : null);
-          }} />
-          <datalist id={`marcas-list-${panelId}`}>{marcas.map(m => <option key={m.id} value={m.nombre} />)}</datalist>
-        </div>
-        <div className="form-group">
-          <label>Modelo</label>
-          <input type="text" list={`modelos-list-${panelId}`} value={modeloBusqueda} disabled={!marcaSeleccionada || loadingModelos} onChange={e => {
-            setModeloBusqueda(e.target.value); const m = modelos.find(x => x.nombre === e.target.value); setModeloSeleccionado(m ? m.id : null);
-          }} />
-          <datalist id={`modelos-list-${panelId}`}>{modelos.map(m => <option key={m.id} value={m.nombre} />)}</datalist>
-        </div>
-        <div className="form-row">
-          <div className="form-group">
-            <label>Precio Origen {mercadoSuizo ? '(CHF)' : '(€)'}</label>
-            <input type="number" value={precioOrigen} onChange={e => setPrecioOrigen(Number(e.target.value))} />
-          </div>
-          <div className="form-group">
-            <label>Antigüedad (Años)</label>
-            <input type="number" min="0" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
-          </div>
-        </div>
-        
-        {/* Panel Seguros Demográficos */}
-        <div className="form-row" style={{marginTop:'0.5rem'}}>
-          <div className="form-group">
-            <label>Edad Conductor</label>
-            <input type="number" min="18" value={edadConductor} onChange={e => setEdadConductor(Number(e.target.value))} />
-          </div>
-          <div className="form-group">
-            <label>Años de Carnet</label>
-            <input type="number" min="0" value={anosCarnet} onChange={e => setAnosCarnet(Number(e.target.value))} />
-          </div>
-        </div>
-
-        <div className="extra-modules" style={{marginTop:'1rem', display:'flex', flexDirection:'column', gap:'0.5rem'}}>
-          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} style={{width:'auto'}} /> Suiza (Aduanas y Divisa)</label>
-          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} style={{width:'auto'}} /> Traer conduciendo a España</label>
-          {calcularViaje && (
-            <div className="travel-box">
-              <input type="text" placeholder="Origen" value={origen} onChange={e=>setOrigen(e.target.value)} />
-              <input type="text" placeholder="Destino" value={destino} onChange={e=>setDestino(e.target.value)} />
-              <button className="btn-secondary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>{viajeLoading ? '...' : 'Calcular Ruta'}</button>
+    <div className={isComparisonMode ? 'stacked-layout' : 'split-layout'}>
+      
+      {/* Formulario / Inputs */}
+      <div>
+        <div className="form-section">
+          <span className="eyebrow">Vehículo</span>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Marca</label>
+              <input type="text" list={`marcas-list-${panelId}`} value={marcaBusqueda} placeholder="Ej. Audi" onChange={e => {
+                setMarcaBusqueda(e.target.value); const m = marcas.find(x => x.nombre === e.target.value); setMarcaSeleccionada(m ? m.id : null);
+              }} />
+              <datalist id={`marcas-list-${panelId}`}>{marcas.map(m => <option key={m.id} value={m.nombre} />)}</datalist>
             </div>
-          )}
-          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} style={{width:'auto'}} /> Financiar</label>
-          {calcularPrestamo && (
-            <div className="travel-box">
-              <input type="number" placeholder="Entrada (€)" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />
-              <input type="number" placeholder="Meses (ej: 60)" value={mesesPrestamo} onChange={e=>setMesesPrestamo(Number(e.target.value))} />
+            <div className="form-group">
+              <label>Modelo</label>
+              <input type="text" list={`modelos-list-${panelId}`} value={modeloBusqueda} placeholder="Ej. A4 Avant" disabled={!marcaSeleccionada || loadingModelos} onChange={e => {
+                setModeloBusqueda(e.target.value); const m = modelos.find(x => x.nombre === e.target.value); setModeloSeleccionado(m ? m.id : null);
+              }} />
+              <datalist id={`modelos-list-${panelId}`}>{modelos.map(m => <option key={m.id} value={m.nombre} />)}</datalist>
             </div>
-          )}
+            <div className="form-group">
+              <label>Precio de origen {mercadoSuizo ? '(CHF)' : '(€)'}</label>
+              <input type="number" value={precioOrigen} onChange={e => setPrecioOrigen(Number(e.target.value))} />
+            </div>
+            <div className="form-group">
+              <label>Antigüedad (Años)</label>
+              <input type="number" min="0" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
+            </div>
+          </div>
         </div>
 
-        <button className="btn-primary" onClick={handleBuscar} disabled={!modeloSeleccionado || cargandoBusqueda}>GENERAR PRESUPUESTO</button>
+        <div className="form-section">
+          <span className="eyebrow">Perfil de conductor</span>
+          <div className="form-grid">
+            <div className="form-group">
+              <label>Edad</label>
+              <input type="number" min="18" value={edadConductor} onChange={e => setEdadConductor(Number(e.target.value))} />
+            </div>
+            <div className="form-group">
+              <label>Años de carnet</label>
+              <input type="number" min="0" value={anosCarnet} onChange={e => setAnosCarnet(Number(e.target.value))} />
+            </div>
+          </div>
+        </div>
+
+        <div className="form-section">
+          <span className="eyebrow">Módulos adicionales</span>
+          <div style={{display:'flex', flexDirection:'column', gap:'var(--space-3)'}}>
+            
+            <label className="checkbox-group">
+              <input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} />
+              <div className="checkbox-content">
+                <span className="checkbox-label">Importación desde Suiza</span>
+                <span className="checkbox-desc">Aplica cálculo de aranceles (10%) e IVA (21%) extra comunitarios.</span>
+              </div>
+            </label>
+
+            <div style={{display:'flex', flexDirection:'column'}}>
+              <label className="checkbox-group" style={calcularViaje ? {borderBottomLeftRadius:0, borderBottomRightRadius:0, borderBottom:'none'} : {}}>
+                <input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} />
+                <div className="checkbox-content">
+                  <span className="checkbox-label">Traer conduciendo</span>
+                  <span className="checkbox-desc">Cálculo de gasolina por ruta geolocalizada.</span>
+                </div>
+              </label>
+              {calcularViaje && (
+                <div className="nested-form">
+                  <input type="text" placeholder="Ciudad de origen (Ej. Múnich)" value={origen} onChange={e=>setOrigen(e.target.value)} />
+                  <input type="text" placeholder="Ciudad de destino (Ej. Madrid)" value={destino} onChange={e=>setDestino(e.target.value)} />
+                  <button className="btn-secondary" style={{alignSelf:'flex-start'}} onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>
+                    {viajeLoading ? 'Calculando ruta...' : 'Calcular coste trayecto'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div style={{display:'flex', flexDirection:'column'}}>
+              <label className="checkbox-group" style={calcularPrestamo ? {borderBottomLeftRadius:0, borderBottomRightRadius:0, borderBottom:'none'} : {}}>
+                <input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} />
+                <div className="checkbox-content">
+                  <span className="checkbox-label">Financiación local</span>
+                  <span className="checkbox-desc">Simulación de cuotas bancarias con interés fijo.</span>
+                </div>
+              </label>
+              {calcularPrestamo && (
+                <div className="nested-form form-grid">
+                  <div className="form-group">
+                    <label>Aportación inicial (€)</label>
+                    <input type="number" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />
+                  </div>
+                  <div className="form-group">
+                    <label>Duración (Meses)</label>
+                    <input type="number" value={mesesPrestamo} onChange={e=>setMesesPrestamo(Number(e.target.value))} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        <button className="btn-primary" style={{width:'100%'}} onClick={handleBuscar} disabled={!modeloSeleccionado || cargandoBusqueda}>
+          {cargandoBusqueda ? 'Calculando...' : 'Calcular costes'}
+        </button>
       </div>
 
+      {/* Recibo / Sidebar */}
       {cocheData && resultados && (
-        <div className="glass-panel results-panel" id={`pdf-content-${panelId}`}>
-          <div className="results-header">
-            <h2>📊 {cocheData.nombre}</h2>
-            <div style={{display:'flex', gap:'5px'}}>
-              {user && <button className="btn-pdf" style={{background:'#10b981'}} onClick={handleGuardarGaraje} data-html2canvas-ignore>❤️</button>}
-              <button className="btn-pdf" onClick={handleDownloadPDF} data-html2canvas-ignore>📄 PDF</button>
+        <div className="receipt-sidebar" id={`pdf-content-${panelId}`}>
+          <div className="receipt-header">
+            <h3>{cocheData.nombre}</h3>
+            <div style={{display:'flex', gap:'var(--space-2)'}}>
+              {user && (
+                <button className="btn-ghost" style={{padding:'4px'}} onClick={handleGuardarGaraje} aria-label="Guardar" data-html2canvas-ignore>
+                  <BookmarkIcon />
+                </button>
+              )}
+              <button className="btn-ghost" style={{padding:'4px'}} onClick={handleDownloadPDF} aria-label="Descargar PDF" data-html2canvas-ignore>
+                <DownloadIcon />
+              </button>
             </div>
           </div>
 
-          <div className="etiqueta-badge" style={{backgroundColor: resultados.etiqueta.bg, color: resultados.etiqueta.color, border: `2px solid ${resultados.etiqueta.color}`}}>
-            <strong>DGT:</strong> {resultados.etiqueta.label}
-          </div>
-
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart><Pie data={chartData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">{chartData.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie><Tooltip formatter={v=>`${v.toLocaleString('es-ES', {maximumFractionDigits:0})} €`}/><Legend /></PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="breakdown">
-            <div className="breakdown-item"><span>Coche Origen</span> <span>{resultados.precioFinalEur.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
-            {mercadoSuizo && <div className="breakdown-item"><span>Aduanas + IVA Extra</span> <span style={{color:'#ec4899'}}>{resultados.aduanasEivaSuiza.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>}
-            <div className="breakdown-item"><span>I. Matriculación ({resultados.porcentajeIm}%)</span> <span className="text-red">{resultados.importeIm.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
-            <div className="breakdown-item"><span>Gastos Fijos (ITV, DGT, Placas)</span> <span className="text-orange">{TOTAL_TRAMITES.toLocaleString('es-ES')} €</span></div>
-            {resultados.costeViajeGasolina > 0 && <div className="breakdown-item"><span>Viaje Gasolina</span> <span className="text-blue">{resultados.costeViajeGasolina.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>}
-            <div className="breakdown-item"><span>Seguro Anual Estimado</span> <span style={{color:'#8b5cf6', fontWeight:'bold'}}>{resultados.seguroEstimadoAnual.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
-            <div className="breakdown-item highlight"><span>Total Gastos Extra</span> <span>{resultados.totalCosteExtra.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
-          </div>
-
-          <div className="total-box">
-            <div className="total-label">Presupuesto Real Coche Puesto en Casa</div>
-            <div className="total-value">{resultados.totalPresupuesto.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</div>
-            {calcularPrestamo && (
-              <div style={{marginTop:'1rem', padding:'0.5rem', background:'rgba(255,255,255,0.1)', borderRadius:'8px'}}>
-                <div style={{fontSize:'0.9rem'}}>Cuota ({mesesPrestamo} meses al {TIPO_INTERES_ANUAL*100}% TAE)</div>
-                <div style={{fontSize:'1.5rem', fontWeight:'bold', color:'white'}}>{resultados.cuotaMensual.toLocaleString('es-ES', {maximumFractionDigits:2})} € / mes</div>
+          <div className="receipt-body">
+            <div className="line-item">
+              <span className="label">Coste base (Origen)</span>
+              <span className="value">{resultados.precioFinalEur.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+            </div>
+            
+            <div className="divider"></div>
+            <span className="eyebrow" style={{marginBottom:0}}>Impuestos y Tasas</span>
+            
+            {mercadoSuizo && (
+              <div className="line-item">
+                <span className="label">Aranceles + IVA (Suiza)</span>
+                <span className="value">{resultados.aduanasEivaSuiza.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
               </div>
             )}
+            
+            <div className="line-item">
+              <span className="label">I. Matriculación</span>
+              <span className="value">{resultados.importeIm.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+            </div>
+            <div className="line-item sub">
+              <span className="label">Tramo impositivo: {resultados.porcentajeIm}%</span>
+            </div>
+
+            <div className="line-item">
+              <span className="label">Trámites fijos</span>
+              <span className="value">{TOTAL_TRAMITES.toLocaleString('es-ES')} €</span>
+            </div>
+            <div className="line-item sub">
+              <span className="label">ITV, DGT y Placas</span>
+            </div>
+
+            {resultados.costeViajeGasolina > 0 && (
+              <div className="line-item">
+                <span className="label">Coste viaje (Gasolina)</span>
+                <span className="value">{resultados.costeViajeGasolina.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+              </div>
+            )}
+
+            <div className="divider"></div>
+            <span className="eyebrow" style={{marginBottom:0}}>Mantenimiento Primer Año</span>
+
+            <div className="line-item">
+              <span className="label">Seguro Anual (Estimado)</span>
+              <span className="value">{resultados.seguroEstimadoAnual.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+            </div>
+
+            <div className="divider"></div>
+            <div className="line-item">
+              <span className="label" style={{color: 'var(--text-primary)', fontWeight:500}}>Subtotal Gastos Extra</span>
+              <span className="value">{resultados.totalCosteExtra.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span>
+            </div>
           </div>
+
+          <div className="receipt-total">
+            <div className="line-item">
+              <span className="label">Total inversión</span>
+              <span className="value">{resultados.totalPresupuesto.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</span>
+            </div>
+
+            {calcularPrestamo && (
+              <div style={{marginTop:'var(--space-3)', paddingTop:'var(--space-3)', borderTop:'1px dashed var(--border-color)'}}>
+                <div className="line-item">
+                  <span className="label">Cuota financiación</span>
+                  <span className="value">{resultados.cuotaMensual.toLocaleString('es-ES', {maximumFractionDigits:2})} €/m</span>
+                </div>
+                <div className="line-item sub">
+                  <span className="label">{mesesPrestamo} meses al {TIPO_INTERES_ANUAL*100}% TAE</span>
+                </div>
+              </div>
+            )}
+            
+            <div className="badge-dgt" style={{
+              backgroundColor: resultados.etiqueta.bg, 
+              color: resultados.etiqueta.color, 
+              borderColor: resultados.etiqueta.border
+            }}>
+              DGT {resultados.etiqueta.label}
+            </div>
+          </div>
+
         </div>
       )}
     </div>

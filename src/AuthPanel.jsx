@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 
+const HeartIcon = () => (<svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>);
+const LogOutIcon = () => (<svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>);
+
 export default function AuthPanel({ user, setUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,7 +42,7 @@ export default function AuthPanel({ user, setUser }) {
     } else {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
-      else alert("Revisa tu correo para confirmar el registro (si tienes el email confirm activado en Supabase, sino ya estás logueado).");
+      else alert("Revisa tu correo para confirmar el registro (si tienes el email confirm activado).");
     }
     setLoading(false);
   }
@@ -50,29 +53,36 @@ export default function AuthPanel({ user, setUser }) {
 
   if (user) {
     return (
-      <div className="auth-box">
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-          <span style={{color:'var(--success)', fontWeight:'bold'}}>👤 {user.email}</span>
-          <div style={{display:'flex', gap:'10px'}}>
-            <button className="btn-secondary" style={{padding:'0.5rem', marginTop:0}} onClick={() => setVerGaraje(!verGaraje)}>
-              {verGaraje ? 'Ocultar Garaje' : '❤️ Mi Garaje'}
-            </button>
-            <button className="btn-secondary" style={{padding:'0.5rem', marginTop:0}} onClick={handleLogout}>Salir</button>
-          </div>
+      <div>
+        <div className="auth-header">
+          <h1>{user.email}</h1>
+          <p>Cuenta conectada</p>
+        </div>
+
+        <div style={{display:'flex', gap:'var(--space-3)', justifyContent:'center', marginBottom:'var(--space-6)'}}>
+          <button className="btn-secondary" onClick={() => setVerGaraje(!verGaraje)}>
+            <HeartIcon />
+            {verGaraje ? 'Ocultar presupuestos' : 'Presupuestos guardados'}
+          </button>
+          <button className="btn-ghost" onClick={handleLogout} aria-label="Log out">
+            <LogOutIcon />
+          </button>
         </div>
 
         {verGaraje && (
-          <div style={{marginTop:'1rem', borderTop:'1px solid var(--border-color)', paddingTop:'1rem'}}>
-            <h3>Mis Coches Guardados</h3>
-            {garaje.length === 0 ? <p style={{color:'var(--text-muted)'}}>No tienes presupuestos guardados.</p> : (
-              <ul style={{listStyle:'none', padding:0}}>
+          <div>
+            <h3 style={{borderBottom:'1px solid var(--border-color)', paddingBottom:'var(--space-2)', marginBottom:'var(--space-4)'}}>Historial</h3>
+            {garaje.length === 0 ? (
+              <p>No tienes presupuestos guardados.</p>
+            ) : (
+              <ul className="saved-list">
                 {garaje.map(g => (
-                  <li key={g.id} style={{background:'#f9fafb', border: '1px solid var(--border-color)', padding:'1rem', borderRadius:'8px', marginBottom:'0.5rem', display:'flex', justifyContent:'space-between'}}>
+                  <li key={g.id} className="saved-item">
                     <div>
-                      <strong>{g.coche_nombre}</strong>
-                      <div style={{fontSize:'0.8rem', color:'var(--text-muted)'}}>{new Date(g.created_at).toLocaleDateString()}</div>
+                      <div className="title">{g.coche_nombre}</div>
+                      <div className="date">{new Date(g.created_at).toLocaleDateString()}</div>
                     </div>
-                    <div style={{fontWeight:'bold', color:'var(--success)'}}>{g.presupuesto_total.toLocaleString()} €</div>
+                    <div className="amount">{g.presupuesto_total.toLocaleString()} €</div>
                   </li>
                 ))}
               </ul>
@@ -84,24 +94,30 @@ export default function AuthPanel({ user, setUser }) {
   }
 
   return (
-    <div className="auth-box">
-      <form onSubmit={handleAuth} style={{display:'flex', gap:'10px', alignItems:'flex-end'}}>
-        <div style={{flex:1}}>
+    <div>
+      <div className="auth-header">
+        <h1>{isLogin ? 'Iniciar sesión' : 'Crear cuenta'}</h1>
+        <p>{isLogin ? 'Accede a tu historial de presupuestos' : 'Guarda tus presupuestos para el futuro'}</p>
+      </div>
+
+      <form onSubmit={handleAuth} style={{display:'flex', flexDirection:'column', gap:'var(--space-4)'}}>
+        <div className="form-group">
           <label>Email</label>
-          <input type="email" required value={email} onChange={e => setEmail(e.target.value)} />
+          <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" />
         </div>
-        <div style={{flex:1}}>
+        <div className="form-group">
           <label>Contraseña</label>
-          <input type="password" required value={password} onChange={e => setPassword(e.target.value)} />
+          <input type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
         </div>
-        <button type="submit" className="btn-primary" style={{flex:1, marginTop:0}} disabled={loading}>
-          {loading ? 'Cargando...' : (isLogin ? 'Entrar' : 'Registrarse')}
+        <button type="submit" className="btn-primary" disabled={loading} style={{marginTop: 'var(--space-2)'}}>
+          {loading ? 'Procesando...' : (isLogin ? 'Entrar' : 'Continuar')}
         </button>
       </form>
-      <div style={{marginTop:'0.5rem', fontSize:'0.8rem', textAlign:'right'}}>
-        <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); }} style={{color:'#005a9e', fontWeight:'bold'}}>
+
+      <div style={{marginTop:'var(--space-5)', textAlign:'center'}}>
+        <button className="text-link" onClick={() => setIsLogin(!isLogin)}>
           {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
-        </a>
+        </button>
       </div>
     </div>
   );
