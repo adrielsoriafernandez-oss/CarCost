@@ -36,8 +36,7 @@ export default function CarPanel({ panelId, marcas, user }) {
   const [datosViaje, setDatosViaje] = useState(null);
 
   const [mercadoSuizo, setMercadoSuizo] = useState(false);
-  const [urlMobileDe, setUrlMobileDe] = useState('');
-  const [extrayendo, setExtrayendo] = useState(false);
+
   
   const [calcularPrestamo, setCalcularPrestamo] = useState(false);
   const [entrada, setEntrada] = useState(5000);
@@ -61,24 +60,7 @@ export default function CarPanel({ panelId, marcas, user }) {
     loadModelos();
   }, [marcaSeleccionada]);
 
-  async function extraerMobileDe() {
-    if (!urlMobileDe) return;
-    setExtrayendo(true);
-    try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlMobileDe)}`;
-      const response = await fetch(proxyUrl);
-      const data = await response.json();
-      const html = data.contents;
-      const priceMatch = html.match(/(?:EUR|€)\s*([\d\.,]+)/i) || html.match(/([\d\.,]+)\s*(?:EUR|€)/i);
-      if (priceMatch) {
-        const pStr = priceMatch[1].replace(/\./g, '').replace(/,/g, '.');
-        const p = parseFloat(pStr);
-        if (!isNaN(p) && p > 1000) setPrecioOrigen(p);
-      }
-      alert("Comprueba si el Precio Origen se ha rellenado.");
-    } catch(e) { alert("Error al extraer URL."); }
-    setExtrayendo(false);
-  }
+
 
   async function handleBuscar() {
     if (!modeloSeleccionado) { alert("Selecciona un modelo."); return; }
@@ -189,7 +171,7 @@ export default function CarPanel({ panelId, marcas, user }) {
   };
 
   const chartData = resultados ? [
-    { name: 'Coche', value: resultados.precioFinalEur, color: '#94a3b8' },
+    { name: 'Coche', value: resultados.precioFinalEur, color: '#4b5563' },
     { name: 'I. Matric.', value: resultados.importeIm, color: '#ef4444' },
     { name: 'Aduanas', value: resultados.aduanasEivaSuiza, color: '#ec4899' },
     { name: 'Trámites', value: TOTAL_TRAMITES, color: '#f59e0b' },
@@ -202,13 +184,7 @@ export default function CarPanel({ panelId, marcas, user }) {
       <div className="glass-panel search-panel">
         <h2>🔍 Configurar Vehículo {panelId}</h2>
         
-        <div className="travel-box" style={{marginBottom: '1rem'}}>
-          <label style={{color:'white'}}>AutoScout/Mobile.de</label>
-          <div style={{display:'flex', gap:'5px'}}>
-            <input type="text" placeholder="Pegar URL..." value={urlMobileDe} onChange={e=>setUrlMobileDe(e.target.value)} />
-            <button className="btn-secondary" style={{width:'auto', padding:'0 1rem', marginTop:0}} onClick={extraerMobileDe}>{extrayendo ? '...' : 'Extraer'}</button>
-          </div>
-        </div>
+
 
         <div className="form-group">
           <label>Marca</label>
@@ -248,8 +224,8 @@ export default function CarPanel({ panelId, marcas, user }) {
         </div>
 
         <div className="extra-modules" style={{marginTop:'1rem', display:'flex', flexDirection:'column', gap:'0.5rem'}}>
-          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} style={{width:'auto'}} /> Suiza (Aduanas y Divisa)</label>
-          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} style={{width:'auto'}} /> Traer conduciendo a España</label>
+          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} style={{width:'auto'}} /> Suiza (Aduanas y Divisa)</label>
+          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} style={{width:'auto'}} /> Traer conduciendo a España</label>
           {calcularViaje && (
             <div className="travel-box">
               <input type="text" placeholder="Origen" value={origen} onChange={e=>setOrigen(e.target.value)} />
@@ -257,7 +233,7 @@ export default function CarPanel({ panelId, marcas, user }) {
               <button className="btn-secondary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>{viajeLoading ? '...' : 'Calcular Ruta'}</button>
             </div>
           )}
-          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} style={{width:'auto'}} /> Financiar</label>
+          <label style={{display:'flex', gap:'10px', cursor:'pointer'}}><input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} style={{width:'auto'}} /> Financiar</label>
           {calcularPrestamo && (
             <div className="travel-box">
               <input type="number" placeholder="Entrada (€)" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />

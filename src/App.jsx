@@ -11,6 +11,14 @@ function App() {
   
   // v6 Routing
   const [view, setView] = useState('home'); // 'home' | 'login'
+  
+  // v8 Dark Mode
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     async function loadMarcas() {
@@ -24,10 +32,17 @@ function App() {
     <>
       <div className="header-bar">
         <div>
-          <h1>CarCost Analytics v6</h1>
+          <h1>CarCost Analytics v8</h1>
           <p className="subtitle">Portal avanzado de importación SaaS</p>
         </div>
         <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+          <button 
+            className="btn-toggle-vs" 
+            style={{padding: '0.5rem 1rem'}}
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+          >
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
           {view === 'home' && (
             <button 
               className="btn-toggle-vs" 

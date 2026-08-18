@@ -67,7 +67,7 @@ export default function AuthPanel({ user, setUser }) {
             {garaje.length === 0 ? <p style={{color:'var(--text-muted)'}}>No tienes presupuestos guardados.</p> : (
               <ul style={{listStyle:'none', padding:0}}>
                 {garaje.map(g => (
-                  <li key={g.id} style={{background:'rgba(0,0,0,0.2)', padding:'1rem', borderRadius:'8px', marginBottom:'0.5rem', display:'flex', justifyContent:'space-between'}}>
+                  <li key={g.id} style={{background:'#f9fafb', border: '1px solid var(--border-color)', padding:'1rem', borderRadius:'8px', marginBottom:'0.5rem', display:'flex', justifyContent:'space-between'}}>
                     <div>
                       <strong>{g.coche_nombre}</strong>
                       <div style={{fontSize:'0.8rem', color:'var(--text-muted)'}}>{new Date(g.created_at).toLocaleDateString()}</div>
@@ -99,7 +99,7 @@ export default function AuthPanel({ user, setUser }) {
         </button>
       </form>
       <div style={{marginTop:'0.5rem', fontSize:'0.8rem', textAlign:'right'}}>
-        <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); }} style={{color:'var(--accent)'}}>
+        <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); }} style={{color:'#005a9e', fontWeight:'bold'}}>
           {isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
         </a>
       </div>
