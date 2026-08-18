@@ -3,11 +3,7 @@ import { supabase } from './supabase';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import html2pdf from 'html2pdf.js';
 
-const DEPRECIACION_BOE = {
-  0: 1.00, 1: 0.84, 2: 0.67, 3: 0.56, 4: 0.47,
-  5: 0.39, 6: 0.34, 7: 0.28, 8: 0.24, 9: 0.19, 10: 0.17
-};
-
+const DEPRECIACION_BOE = { 0: 1.00, 1: 0.84, 2: 0.67, 3: 0.56, 4: 0.47, 5: 0.39, 6: 0.34, 7: 0.28, 8: 0.24, 9: 0.19, 10: 0.17 };
 const COSTES_FIJOS = { itv: 150, placas: 30, traduccion: 80, tasaDgt: 99.77 };
 const TOTAL_TRAMITES = COSTES_FIJOS.itv + COSTES_FIJOS.placas + COSTES_FIJOS.traduccion + COSTES_FIJOS.tasaDgt;
 const PRECIO_GASOLINA = 1.60;
@@ -25,10 +21,10 @@ export default function CarPanel({ panelId, marcas, user }) {
   const [marcaSeleccionada, setMarcaSeleccionada] = useState(null);
   const [modeloBusqueda, setModeloBusqueda] = useState('');
   const [modeloSeleccionado, setModeloSeleccionado] = useState(null);
+  const [loadingModelos, setLoadingModelos] = useState(false);
   
   const [cocheData, setCocheData] = useState(null);
   const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
-  
   const [precioOrigen, setPrecioOrigen] = useState(30000);
   const [antiguedad, setAntiguedad] = useState(3);
   const [resultados, setResultados] = useState(null);
@@ -39,9 +35,6 @@ export default function CarPanel({ panelId, marcas, user }) {
   const [viajeLoading, setViajeLoading] = useState(false);
   const [datosViaje, setDatosViaje] = useState(null);
 
-  const [loadingModelos, setLoadingModelos] = useState(false);
-
-  // v5 Features
   const [mercadoSuizo, setMercadoSuizo] = useState(false);
   const [urlMobileDe, setUrlMobileDe] = useState('');
   const [extrayendo, setExtrayendo] = useState(false);
@@ -50,13 +43,15 @@ export default function CarPanel({ panelId, marcas, user }) {
   const [entrada, setEntrada] = useState(5000);
   const [mesesPrestamo, setMesesPrestamo] = useState(60);
 
-  const TIPO_INTERES_ANUAL = 0.075; // 7.5% TAE por defecto
+  // v6 Seguros
+  const [edadConductor, setEdadConductor] = useState(30);
+  const [anosCarnet, setAnosCarnet] = useState(10);
+  const [seguroBaseDB, setSeguroBaseDB] = useState(null);
+
+  const TIPO_INTERES_ANUAL = 0.075; 
 
   useEffect(() => {
-    if (!marcaSeleccionada) {
-      setModelos([]); setModeloBusqueda(''); setModeloSeleccionado(null);
-      return;
-    }
+    if (!marcaSeleccionada) { setModelos([]); setModeloBusqueda(''); setModeloSeleccionado(null); return; }
     async function loadModelos() {
       setLoadingModelos(true);
       const { data } = await supabase.from('modelos').select('*').eq('marca_id', marcaSeleccionada).order('nombre');
@@ -66,28 +61,22 @@ export default function CarPanel({ panelId, marcas, user }) {
     loadModelos();
   }, [marcaSeleccionada]);
 
-  // Scraper simulado / Cors proxy para URLs
   async function extraerMobileDe() {
     if (!urlMobileDe) return;
     setExtrayendo(true);
     try {
-      // Usar proxy CORS gratuito para extraer HTML
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlMobileDe)}`;
       const response = await fetch(proxyUrl);
       const data = await response.json();
       const html = data.contents;
-      
-      // Buscar precio genérico en HTML (Regex simple para buscar € XX.XXX)
       const priceMatch = html.match(/(?:EUR|€)\s*([\d\.,]+)/i) || html.match(/([\d\.,]+)\s*(?:EUR|€)/i);
       if (priceMatch) {
         const pStr = priceMatch[1].replace(/\./g, '').replace(/,/g, '.');
         const p = parseFloat(pStr);
         if (!isNaN(p) && p > 1000) setPrecioOrigen(p);
       }
-      alert("Extracción completada. Comprueba que el precio Origen se ha rellenado correctamente (CORS proxy puede ser inestable según el anuncio).");
-    } catch(e) {
-      alert("No se pudo extraer la URL. Mobile.de podría estar bloqueando el proxy.");
-    }
+      alert("Comprueba si el Precio Origen se ha rellenado.");
+    } catch(e) { alert("Error al extraer URL."); }
     setExtrayendo(false);
   }
 
@@ -95,19 +84,17 @@ export default function CarPanel({ panelId, marcas, user }) {
     if (!modeloSeleccionado) { alert("Selecciona un modelo."); return; }
     setCargandoBusqueda(true);
     setDatosViaje(null);
-    
     const { data: modData } = await supabase.from('modelos').select('*').eq('id', modeloSeleccionado).single();
     const { data: segData } = await supabase.from('seguros').select('precio_anual').eq('modelo_id', modeloSeleccionado).limit(1);
-      
-    setCocheData({
-      ...modData,
-      seguro_estimado: segData?.length > 0 ? segData[0].precio_anual : "No disp."
-    });
+    
+    // Guardamos el precio base del seguro si existe en la BD (sino null)
+    let seguroBase = segData?.length > 0 ? parseFloat(segData[0].precio_anual) : null;
+    setSeguroBaseDB(seguroBase);
+    setCocheData(modData);
     setCargandoBusqueda(false);
   }
 
   async function calcularRutaViaje() {
-    // ... logic remains identical
     if (!origen || !destino || !cocheData) return;
     setViajeLoading(true);
     try {
@@ -123,27 +110,22 @@ export default function CarPanel({ panelId, marcas, user }) {
           setDatosViaje({ distancia: Math.round(distKm), costeGasolina: (distKm/100)*(cocheData.consumo_l_100km||0)*PRECIO_GASOLINA });
         }
       }
-    } catch(e) { alert("Error al calcular ruta."); }
+    } catch(e) {}
     setViajeLoading(false);
   }
 
   useEffect(() => {
     if (!cocheData || !precioOrigen) return;
-    
     async function calcularTodo() {
       let precioFinalEur = precioOrigen;
       let aduanasEivaSuiza = 0;
 
-      // Conversión Suiza CHF a EUR y Aduanas
       if (mercadoSuizo) {
         try {
           const res = await fetch('https://api.frankfurter.app/latest?from=CHF&to=EUR');
           const rates = await res.json();
           precioFinalEur = precioOrigen * rates.rates.EUR;
-        } catch(e) { 
-          precioFinalEur = precioOrigen * 1.05; // fallback rate
-        }
-        // 10% Arancel + 21% IVA español sobre el importe + arancel
+        } catch(e) { precioFinalEur = precioOrigen * 1.05; }
         const arancel = precioFinalEur * 0.10;
         const baseIva = precioFinalEur + arancel;
         const iva = baseIva * 0.21;
@@ -155,17 +137,27 @@ export default function CarPanel({ panelId, marcas, user }) {
       if (co2 > 120 && co2 <= 159) porcentajeIm = 4.75;
       else if (co2 >= 160 && co2 <= 199) porcentajeIm = 9.75;
       else if (co2 >= 200) porcentajeIm = 14.75;
-
       const depreciacion = DEPRECIACION_BOE[antiguedad > 10 ? 10 : antiguedad];
       const valorHacienda = precioFinalEur * depreciacion;
       const importeIm = valorHacienda * (porcentajeIm / 100);
       
       const costeViajeGasolina = (calcularViaje && datosViaje) ? datosViaje.costeGasolina : 0;
-      const totalCosteExtra = importeIm + TOTAL_TRAMITES + costeViajeGasolina + aduanasEivaSuiza;
+      
+      // Estimación del Seguro v6
+      let multiplicadorRiesgo = 1.0;
+      if (edadConductor < 25) multiplicadorRiesgo += 0.8;
+      else if (edadConductor < 30) multiplicadorRiesgo += 0.3;
+      if (anosCarnet < 2) multiplicadorRiesgo += 0.5;
+      else if (anosCarnet < 5) multiplicadorRiesgo += 0.2;
+      
+      // Si la BD no tiene base, estimamos un 2% del precio del coche como base
+      const baseReal = seguroBaseDB || (precioFinalEur * 0.02); 
+      const seguroEstimadoAnual = baseReal * multiplicadorRiesgo;
+
+      const totalCosteExtra = importeIm + TOTAL_TRAMITES + costeViajeGasolina + aduanasEivaSuiza + seguroEstimadoAnual;
       const totalPresupuesto = precioFinalEur + totalCosteExtra;
       const etiqueta = getEtiquetaDGT(co2, antiguedad);
 
-      // Calculadora Prestamo
       let cuotaMensual = 0;
       if (calcularPrestamo) {
         const capitalPrestar = totalPresupuesto - entrada;
@@ -177,35 +169,32 @@ export default function CarPanel({ panelId, marcas, user }) {
       
       setResultados({
         precioFinalEur, aduanasEivaSuiza, valorHacienda, porcentajeIm, importeIm, 
-        costeViajeGasolina, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual
+        costeViajeGasolina, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual, seguroEstimadoAnual
       });
     }
     calcularTodo();
-  }, [cocheData, precioOrigen, antiguedad, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo]);
+  }, [cocheData, precioOrigen, antiguedad, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
 
   async function handleGuardarGaraje() {
-    if (!user) return alert("Debes iniciar sesión para guardar en Mi Garaje");
+    if (!user) return alert("Debes iniciar sesión");
     const { error } = await supabase.from('garaje').insert([{
-      user_id: user.id,
-      coche_nombre: cocheData.nombre,
-      presupuesto_total: resultados.totalPresupuesto,
-      datos_json: resultados
+      user_id: user.id, coche_nombre: cocheData.nombre, presupuesto_total: resultados.totalPresupuesto, datos_json: resultados
     }]);
-    if (error) alert(error.message);
-    else alert("¡Coche guardado en tu garaje!");
+    if (error) alert(error.message); else alert("Coche guardado en Mi Garaje!");
   }
 
   const handleDownloadPDF = () => {
     const element = document.getElementById(`pdf-content-${panelId}`);
-    html2pdf().set({ margin: 10, filename: 'Presupuesto_Importacion.pdf' }).from(element).save();
+    html2pdf().set({ margin: 10, filename: 'Presupuesto.pdf' }).from(element).save();
   };
 
   const chartData = resultados ? [
-    { name: 'Coche Base', value: resultados.precioFinalEur, color: '#94a3b8' },
-    { name: 'Imp. Matric.', value: resultados.importeIm, color: '#ef4444' },
-    { name: 'Aduanas/IVA', value: resultados.aduanasEivaSuiza, color: '#ec4899' },
+    { name: 'Coche', value: resultados.precioFinalEur, color: '#94a3b8' },
+    { name: 'I. Matric.', value: resultados.importeIm, color: '#ef4444' },
+    { name: 'Aduanas', value: resultados.aduanasEivaSuiza, color: '#ec4899' },
     { name: 'Trámites', value: TOTAL_TRAMITES, color: '#f59e0b' },
-    { name: 'Viaje (Gasolina)', value: resultados.costeViajeGasolina, color: '#3b82f6' }
+    { name: 'Viaje', value: resultados.costeViajeGasolina, color: '#3b82f6' },
+    { name: 'Seguro', value: resultados.seguroEstimadoAnual, color: '#8b5cf6' }
   ].filter(i => i.value > 0) : [];
 
   return (
@@ -213,12 +202,11 @@ export default function CarPanel({ panelId, marcas, user }) {
       <div className="glass-panel search-panel">
         <h2>🔍 Configurar Vehículo {panelId}</h2>
         
-        {/* Scraper Tool */}
         <div className="travel-box" style={{marginBottom: '1rem'}}>
-          <label style={{color:'white'}}>Enlace Automático (AutoScout/Mobile.de)</label>
+          <label style={{color:'white'}}>AutoScout/Mobile.de</label>
           <div style={{display:'flex', gap:'5px'}}>
-            <input type="text" placeholder="Pegar enlace URL aquí..." value={urlMobileDe} onChange={e=>setUrlMobileDe(e.target.value)} />
-            <button className="btn-secondary" style={{width:'auto', padding:'0 1rem', marginTop:0}} onClick={extraerMobileDe} disabled={extrayendo}>{extrayendo ? '...' : 'Extraer'}</button>
+            <input type="text" placeholder="Pegar URL..." value={urlMobileDe} onChange={e=>setUrlMobileDe(e.target.value)} />
+            <button className="btn-secondary" style={{width:'auto', padding:'0 1rem', marginTop:0}} onClick={extraerMobileDe}>{extrayendo ? '...' : 'Extraer'}</button>
           </div>
         </div>
 
@@ -246,33 +234,39 @@ export default function CarPanel({ panelId, marcas, user }) {
             <input type="number" min="0" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
           </div>
         </div>
+        
+        {/* Panel Seguros Demográficos */}
+        <div className="form-row" style={{marginTop:'0.5rem'}}>
+          <div className="form-group">
+            <label>Edad Conductor</label>
+            <input type="number" min="18" value={edadConductor} onChange={e => setEdadConductor(Number(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>Años de Carnet</label>
+            <input type="number" min="0" value={anosCarnet} onChange={e => setAnosCarnet(Number(e.target.value))} />
+          </div>
+        </div>
 
-        {/* Módulos Extra */}
         <div className="extra-modules" style={{marginTop:'1rem', display:'flex', flexDirection:'column', gap:'0.5rem'}}>
-          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} style={{width:'auto'}} /> Importado de Suiza (Aplica Aduanas y Divisa)</label>
+          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={mercadoSuizo} onChange={e=>setMercadoSuizo(e.target.checked)} style={{width:'auto'}} /> Suiza (Aduanas y Divisa)</label>
           <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={calcularViaje} onChange={e=>setCalcularViaje(e.target.checked)} style={{width:'auto'}} /> Traer conduciendo a España</label>
           {calcularViaje && (
             <div className="travel-box">
               <input type="text" placeholder="Origen" value={origen} onChange={e=>setOrigen(e.target.value)} />
               <input type="text" placeholder="Destino" value={destino} onChange={e=>setDestino(e.target.value)} />
-              <button className="btn-secondary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>{viajeLoading ? 'Calculando...' : 'Calcular Ruta'}</button>
+              <button className="btn-secondary" onClick={calcularRutaViaje} disabled={viajeLoading || !cocheData}>{viajeLoading ? '...' : 'Calcular Ruta'}</button>
             </div>
           )}
-          
-          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} style={{width:'auto'}} /> Financiar Compra + Gastos</label>
+          <label style={{display:'flex', gap:'10px', color:'white', cursor:'pointer'}}><input type="checkbox" checked={calcularPrestamo} onChange={e=>setCalcularPrestamo(e.target.checked)} style={{width:'auto'}} /> Financiar</label>
           {calcularPrestamo && (
             <div className="travel-box">
-              <label>Entrada Aportada (€)</label>
-              <input type="number" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />
-              <label>Meses (ej: 60 = 5 años)</label>
-              <input type="number" value={mesesPrestamo} onChange={e=>setMesesPrestamo(Number(e.target.value))} />
+              <input type="number" placeholder="Entrada (€)" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />
+              <input type="number" placeholder="Meses (ej: 60)" value={mesesPrestamo} onChange={e=>setMesesPrestamo(Number(e.target.value))} />
             </div>
           )}
         </div>
 
-        <button className="btn-primary" onClick={handleBuscar} disabled={!modeloSeleccionado || cargandoBusqueda}>
-          {cargandoBusqueda ? 'Calculando...' : 'GENERAR PRESUPUESTO'}
-        </button>
+        <button className="btn-primary" onClick={handleBuscar} disabled={!modeloSeleccionado || cargandoBusqueda}>GENERAR PRESUPUESTO</button>
       </div>
 
       {cocheData && resultados && (
@@ -280,7 +274,7 @@ export default function CarPanel({ panelId, marcas, user }) {
           <div className="results-header">
             <h2>📊 {cocheData.nombre}</h2>
             <div style={{display:'flex', gap:'5px'}}>
-              {user && <button className="btn-pdf" style={{background:'#10b981'}} onClick={handleGuardarGaraje} data-html2canvas-ignore>❤️ Guardar</button>}
+              {user && <button className="btn-pdf" style={{background:'#10b981'}} onClick={handleGuardarGaraje} data-html2canvas-ignore>❤️</button>}
               <button className="btn-pdf" onClick={handleDownloadPDF} data-html2canvas-ignore>📄 PDF</button>
             </div>
           </div>
@@ -290,18 +284,19 @@ export default function CarPanel({ panelId, marcas, user }) {
           </div>
 
           <div className="chart-container">
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart><Pie data={chartData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">{chartData.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie><Tooltip formatter={v=>`${v.toLocaleString()} €`}/><Legend /></PieChart>
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart><Pie data={chartData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">{chartData.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie><Tooltip formatter={v=>`${v.toLocaleString('es-ES', {maximumFractionDigits:0})} €`}/><Legend /></PieChart>
             </ResponsiveContainer>
           </div>
 
           <div className="breakdown">
-            <div className="breakdown-item"><span>Coche Origen {mercadoSuizo && '(Convertido CHF->EUR)'}</span> <span>{resultados.precioFinalEur.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
-            {mercadoSuizo && <div className="breakdown-item"><span>Aduanas + IVA Extra (Suiza)</span> <span style={{color:'#ec4899'}}>{resultados.aduanasEivaSuiza.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>}
-            <div className="breakdown-item"><span>Impuesto Matriculación ({resultados.porcentajeIm}%)</span> <span className="text-red">{resultados.importeIm.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
+            <div className="breakdown-item"><span>Coche Origen</span> <span>{resultados.precioFinalEur.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
+            {mercadoSuizo && <div className="breakdown-item"><span>Aduanas + IVA Extra</span> <span style={{color:'#ec4899'}}>{resultados.aduanasEivaSuiza.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>}
+            <div className="breakdown-item"><span>I. Matriculación ({resultados.porcentajeIm}%)</span> <span className="text-red">{resultados.importeIm.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
             <div className="breakdown-item"><span>Gastos Fijos (ITV, DGT, Placas)</span> <span className="text-orange">{TOTAL_TRAMITES.toLocaleString('es-ES')} €</span></div>
             {resultados.costeViajeGasolina > 0 && <div className="breakdown-item"><span>Viaje Gasolina</span> <span className="text-blue">{resultados.costeViajeGasolina.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>}
-            <div className="breakdown-item highlight"><span>Total Gastos Extra de Importación</span> <span>{resultados.totalCosteExtra.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
+            <div className="breakdown-item"><span>Seguro Anual Estimado</span> <span style={{color:'#8b5cf6', fontWeight:'bold'}}>{resultados.seguroEstimadoAnual.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
+            <div className="breakdown-item highlight"><span>Total Gastos Extra</span> <span>{resultados.totalCosteExtra.toLocaleString('es-ES',{maximumFractionDigits:0})} €</span></div>
           </div>
 
           <div className="total-box">
@@ -309,7 +304,7 @@ export default function CarPanel({ panelId, marcas, user }) {
             <div className="total-value">{resultados.totalPresupuesto.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</div>
             {calcularPrestamo && (
               <div style={{marginTop:'1rem', padding:'0.5rem', background:'rgba(255,255,255,0.1)', borderRadius:'8px'}}>
-                <div style={{fontSize:'0.9rem'}}>Cuota Financiación ({mesesPrestamo} meses al {TIPO_INTERES_ANUAL*100}% TAE)</div>
+                <div style={{fontSize:'0.9rem'}}>Cuota ({mesesPrestamo} meses al {TIPO_INTERES_ANUAL*100}% TAE)</div>
                 <div style={{fontSize:'1.5rem', fontWeight:'bold', color:'white'}}>{resultados.cuotaMensual.toLocaleString('es-ES', {maximumFractionDigits:2})} € / mes</div>
               </div>
             )}
