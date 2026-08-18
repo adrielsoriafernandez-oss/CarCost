@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import html2pdf from 'html2pdf.js';
 
 const DEPRECIACION_BOE = { 0: 1.00, 1: 0.84, 2: 0.67, 3: 0.56, 4: 0.47, 5: 0.39, 6: 0.34, 7: 0.28, 8: 0.24, 9: 0.19, 10: 0.17 };
+const DEPRECIACION_MERCADO = { 0: 1.00, 1: 0.82, 2: 0.74, 3: 0.66, 4: 0.58, 5: 0.51, 6: 0.45, 7: 0.40, 8: 0.36, 9: 0.32, 10: 0.28 };
 const COSTES_FIJOS = { itv: 150, placas: 30, traduccion: 80, tasaDgt: 99.77 };
 const TOTAL_TRAMITES = COSTES_FIJOS.itv + COSTES_FIJOS.placas + COSTES_FIJOS.traduccion + COSTES_FIJOS.tasaDgt;
 const PRECIO_GASOLINA = 1.60;
@@ -30,6 +31,7 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
   const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
   const [precioOrigen, setPrecioOrigen] = useState(30000);
   const [antiguedad, setAntiguedad] = useState(3);
+  const [kilometros, setKilometros] = useState(60000);
   const [resultados, setResultados] = useState(null);
   
   const [calcularViaje, setCalcularViaje] = useState(false);
@@ -143,14 +145,34 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
           cuotaMensual = (capitalPrestar * rMensual * Math.pow(1 + rMensual, mesesPrestamo)) / (Math.pow(1 + rMensual, mesesPrestamo) - 1);
         }
       }
+
+      // Algoritmo Valor Mercado España
+      const ageKey = antiguedad > 10 ? 10 : antiguedad;
+      const factorDepreciacion = DEPRECIACION_MERCADO[ageKey];
+      const precioNuevoEstimado = precioOrigen / factorDepreciacion;
+      let precioEspanaBase = precioNuevoEstimado * factorDepreciacion * 1.10; // Prima mercado español
+
+      const kilometrosIdeales = antiguedad * 15000;
+      const diferenciaKm = kilometros - kilometrosIdeales;
+      const tramos10k = diferenciaKm / 10000;
+      let ajusteKm = 1.0;
+      if (tramos10k > 0) {
+        ajusteKm = 1 - (tramos10k * 0.015);
+      } else if (tramos10k < 0) {
+        ajusteKm = 1 + (Math.abs(tramos10k) * 0.01);
+      }
+
+      const valorEstimadoEspana = precioEspanaBase * ajusteKm;
+      const ahorroEstimado = valorEstimadoEspana - totalPresupuesto;
       
       setResultados({
         precioFinalEur, aduanasEivaSuiza, valorHacienda, porcentajeIm, importeIm, 
-        costeViajeGasolina, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual, seguroEstimadoAnual
+        costeViajeGasolina, totalCosteExtra, totalPresupuesto, etiqueta, cuotaMensual, seguroEstimadoAnual,
+        valorEstimadoEspana, ahorroEstimado
       });
     }
     calcularTodo();
-  }, [cocheData, precioOrigen, antiguedad, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
+  }, [cocheData, precioOrigen, antiguedad, kilometros, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
 
   async function handleGuardarGaraje() {
     if (!user) return alert("Debes iniciar sesión");
@@ -194,6 +216,10 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
             <div className="form-group">
               <label>Antigüedad (Años)</label>
               <input type="number" min="0" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
+            </div>
+            <div className="form-group">
+              <label>Kilómetros</label>
+              <input type="number" min="0" value={kilometros} step="5000" onChange={e => setKilometros(Number(e.target.value))} />
             </div>
           </div>
         </div>
@@ -368,6 +394,24 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
               borderColor: resultados.etiqueta.border
             }}>
               DGT {resultados.etiqueta.label}
+            </div>
+          </div>
+
+          <div style={{
+            padding: 'var(--space-4)',
+            background: resultados.ahorroEstimado > 0 ? '#f0fdf4' : '#fff1f2',
+            borderTop: resultados.ahorroEstimado > 0 ? '1px solid #bbf7d0' : '1px solid #fecdd3'
+          }}>
+            <span className="eyebrow" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>Análisis de Mercado</span>
+            <div className="line-item">
+              <span className="label" style={{color: resultados.ahorroEstimado > 0 ? '#15803d' : '#be123c'}}>Valor España (Estimado)</span>
+              <span className="value" style={{color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>{resultados.valorEstimadoEspana.toLocaleString('es-ES', {maximumFractionDigits: 0})} €</span>
+            </div>
+            <div className="line-item" style={{marginTop: 'var(--space-2)'}}>
+              <span className="label" style={{fontWeight:600, color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>{resultados.ahorroEstimado > 0 ? 'Ahorro importando' : 'Pérdida importando'}</span>
+              <span className="value" style={{fontSize: '1.25rem', fontWeight:700, color: resultados.ahorroEstimado > 0 ? '#166534' : '#9f1239'}}>
+                {resultados.ahorroEstimado > 0 ? '+' : ''}{resultados.ahorroEstimado.toLocaleString('es-ES', {maximumFractionDigits: 0})} €
+              </span>
             </div>
           </div>
 
