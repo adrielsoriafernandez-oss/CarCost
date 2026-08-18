@@ -29,9 +29,9 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
   
   const [cocheData, setCocheData] = useState(null);
   const [cargandoBusqueda, setCargandoBusqueda] = useState(false);
-  const [precioOrigen, setPrecioOrigen] = useState(30000);
-  const [antiguedad, setAntiguedad] = useState(3);
-  const [kilometros, setKilometros] = useState(60000);
+  const [precioOrigen, setPrecioOrigen] = useState('');
+  const [fechaMatriculacion, setFechaMatriculacion] = useState('');
+  const [kilometros, setKilometros] = useState('');
   const [resultados, setResultados] = useState(null);
   
   const [calcularViaje, setCalcularViaje] = useState(false);
@@ -42,11 +42,11 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
 
   const [mercadoSuizo, setMercadoSuizo] = useState(false);
   const [calcularPrestamo, setCalcularPrestamo] = useState(false);
-  const [entrada, setEntrada] = useState(5000);
-  const [mesesPrestamo, setMesesPrestamo] = useState(60);
+  const [entrada, setEntrada] = useState('');
+  const [mesesPrestamo, setMesesPrestamo] = useState('');
 
-  const [edadConductor, setEdadConductor] = useState(30);
-  const [anosCarnet, setAnosCarnet] = useState(10);
+  const [edadConductor, setEdadConductor] = useState('');
+  const [anosCarnet, setAnosCarnet] = useState('');
   const [seguroBaseDB, setSeguroBaseDB] = useState(null);
 
   const TIPO_INTERES_ANUAL = 0.075; 
@@ -96,9 +96,14 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
   }
 
   useEffect(() => {
-    if (!cocheData || !precioOrigen) return;
+    if (!cocheData || !precioOrigen || !fechaMatriculacion || kilometros === '') return;
+    
+    // Calcular antigüedad real
+    const diffTime = Math.abs(new Date() - new Date(fechaMatriculacion));
+    const antiguedad = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25)) || 0;
+
     async function calcularTodo() {
-      let precioFinalEur = precioOrigen;
+      let precioFinalEur = Number(precioOrigen) || 0;
       let aduanasEivaSuiza = 0;
 
       if (mercadoSuizo) {
@@ -172,7 +177,7 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
       });
     }
     calcularTodo();
-  }, [cocheData, precioOrigen, antiguedad, kilometros, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
+  }, [cocheData, precioOrigen, fechaMatriculacion, kilometros, datosViaje, calcularViaje, mercadoSuizo, calcularPrestamo, entrada, mesesPrestamo, edadConductor, anosCarnet, seguroBaseDB]);
 
   async function handleGuardarGaraje() {
     if (!user) return alert("Debes iniciar sesión");
@@ -211,15 +216,15 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
             </div>
             <div className="form-group">
               <label>Precio de origen {mercadoSuizo ? '(CHF)' : '(€)'}</label>
-              <input type="number" value={precioOrigen} onChange={e => setPrecioOrigen(Number(e.target.value))} />
+              <input type="number" value={precioOrigen} placeholder="Ej: 35000" onChange={e => setPrecioOrigen(e.target.value)} />
             </div>
             <div className="form-group">
-              <label>Antigüedad (Años)</label>
-              <input type="number" min="0" value={antiguedad} onChange={e => setAntiguedad(Number(e.target.value))} />
+              <label>Fecha de matriculación</label>
+              <input type="date" value={fechaMatriculacion} onChange={e => setFechaMatriculacion(e.target.value)} />
             </div>
             <div className="form-group">
               <label>Kilómetros</label>
-              <input type="number" min="0" value={kilometros} step="5000" onChange={e => setKilometros(Number(e.target.value))} />
+              <input type="number" min="0" value={kilometros} placeholder="Ej: 80000" onChange={e => setKilometros(e.target.value)} />
             </div>
           </div>
         </div>
@@ -229,11 +234,11 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
           <div className="form-grid">
             <div className="form-group">
               <label>Edad</label>
-              <input type="number" min="18" value={edadConductor} onChange={e => setEdadConductor(Number(e.target.value))} />
+              <input type="number" min="18" value={edadConductor} placeholder="Ej: 32" onChange={e => setEdadConductor(e.target.value)} />
             </div>
             <div className="form-group">
               <label>Años de carnet</label>
-              <input type="number" min="0" value={anosCarnet} onChange={e => setAnosCarnet(Number(e.target.value))} />
+              <input type="number" min="0" value={anosCarnet} placeholder="Ej: 10" onChange={e => setAnosCarnet(e.target.value)} />
             </div>
           </div>
         </div>
@@ -281,11 +286,11 @@ export default function CarPanel({ panelId, marcas, user, isComparisonMode }) {
                 <div className="nested-form form-grid">
                   <div className="form-group">
                     <label>Aportación inicial (€)</label>
-                    <input type="number" value={entrada} onChange={e=>setEntrada(Number(e.target.value))} />
+                    <input type="number" value={entrada} placeholder="Ej: 6000" onChange={e=>setEntrada(e.target.value)} />
                   </div>
                   <div className="form-group">
                     <label>Duración (Meses)</label>
-                    <input type="number" value={mesesPrestamo} onChange={e=>setMesesPrestamo(Number(e.target.value))} />
+                    <input type="number" value={mesesPrestamo} placeholder="Ej: 48" onChange={e=>setMesesPrestamo(e.target.value)} />
                   </div>
                 </div>
               )}
