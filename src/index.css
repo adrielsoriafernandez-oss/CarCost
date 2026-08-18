@@ -209,6 +209,11 @@ input:focus, select:focus {
 }
 input::placeholder { color: var(--text-tertiary); }
 
+option {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 /* Hide number arrows */
 input[type=number]::-webkit-inner-spin-button, 
 input[type=number]::-webkit-outer-spin-button { 
