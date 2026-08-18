@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  color-scheme: light;
   /* Premium Light Theme (Stripe/Vercel inspired) */
   --bg-primary: #ffffff;
   --bg-secondary: #f9fafb;
@@ -35,6 +36,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   /* Premium Dark Theme (Linear/Vercel inspired) */
   --bg-primary: #000000;
   --bg-secondary: #0a0a0a;
